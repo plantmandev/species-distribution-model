@@ -17,9 +17,9 @@ while True:
         break
     
     all_records.extend(batch['results'])
-    offset += 300
+    offset += 300 # GBIF API request limit
     print(f"Downloaded {len(all_records)} records...")
 
 df = pd.DataFrame(all_records)
-df.to_csv('vanessa_cardui_all.csv', index=False)
+df.to_csv('vanessa-cardui-gbif.csv', index=False)
 print(f"Total records: {len(df)}")

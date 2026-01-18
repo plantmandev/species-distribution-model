@@ -1,11 +1,12 @@
 import processing
+import os
 from qgis.core import (
     QgsVectorLayer, 
     QgsProject,
     QgsVectorLayerTemporalProperties
 )
 
-csv_path = "C:/Users/sirpl/Projects/Butterfly Ranges/vanessa-cardui-cleaned.geojson"
+csv_path = ("C:/Users/sirpl/Projects/species-distribution-model/vanessa-cardui-gbif.gpkg")
 date_field = "eventDate"
 output_path = "/"
 species_name = "vanessa_cardui"
