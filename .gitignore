@@ -1,2 +1,4 @@
+*.csv
+*.gpkg
+*.geojson
 /vanessa-cardui-animation
-vanessa-cardui-gbif.csv
