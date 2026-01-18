@@ -1,12 +1,19 @@
 import imageio.v2 as imageio
 import os
 
-# Directory with your exported frames
-frame_dir = "/mnt/c/Users/sirpl/Projects/Butterfly Ranges/vanessa-cardui-animation/"
+frame_dir = "/mnt/c/Users/sirpl/Projects/species-distribution-model/vanessa-cardui-animation"
+frames = sorted(
+    os.path.join(frame_dir, f)
+    for f in os.listdir(frame_dir)
+    if f.endswith(".png")
+)
 
-# Get all PNG files sorted by name
-frames = sorted([os.path.join(frame_dir, f) for f in os.listdir(frame_dir) if f.endswith('.png')])
+# Output MP4 file
+output_file = "vanessa-cardui-animation.mp4"
 
-# Create GIF
-images = [imageio.imread(frame) for frame in frames]
-imageio.mimsave('vanessa_cardui_animation.gif', images, duration=0.1)  # 0.5 seconds per frame
+# Write frames to MP4
+with imageio.get_writer(output_file, fps=24) as writer:
+    for frame_path in frames:
+        writer.append_data(imageio.imread(frame_path))
+
+print(f"Finished writing {output_file}")

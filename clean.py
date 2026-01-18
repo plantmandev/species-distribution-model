@@ -14,7 +14,7 @@ cleaned_df['eventDate'] = pd.to_datetime(cleaned_df['eventDate'], format='ISO860
 # Remove rows with missing coordinates
 cleaned_df = cleaned_df.dropna(subset=['decimalLatitude', 'decimalLongitude', 'eventDate'])
 
-cleaned_df = cleaned_df[cleaned_df['eventDate'].dt.year >= 2017]
+cleaned_df = cleaned_df[cleaned_df['eventDate'].dt.year >= 2017] # Cleaned data range start
 
 # Create GeoDataFrame
 gdf = gpd.GeoDataFrame(
