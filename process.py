@@ -6,7 +6,7 @@ from qgis.core import (
 )
 
 csv_path = "C:/Users/sirpl/Projects/Butterfly Ranges/vanessa-cardui-cleaned.geojson"
-date_field = "observed_on"
+date_field = "eventDate"
 output_path = "/"
 species_name = "vanessa_cardui"
 

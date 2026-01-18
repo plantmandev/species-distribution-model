@@ -1,7 +1,25 @@
-from pygbif import species as species
 from pygbif import occurrences as occ
+import pandas as pd
 
-species_list = ['Vanessa cardui']
+all_records = []
+offset = 0
 
-for idx in species_list:
-    keys = [species.name_backbone(x)['usage']]
+while True:
+    batch = occ.search(
+        scientificName='Vanessa cardui',
+        country= ['US', 'CA', 'MX'], # Refine search to North America
+        hasCoordinate=True,
+        limit=300,
+        offset=offset
+    )
+    
+    if not batch['results']:
+        break
+    
+    all_records.extend(batch['results'])
+    offset += 300
+    print(f"Downloaded {len(all_records)} records...")
+
+df = pd.DataFrame(all_records)
+df.to_csv('vanessa_cardui_all.csv', index=False)
+print(f"Total records: {len(df)}")
