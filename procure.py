@@ -5,6 +5,7 @@ import os
 checkpoint_file = 'checkpoint.csv'
 all_records = []
 offset = 0
+species = 'Danaus plexippus'
 
 # Load existing checkpoint if exists
 if os.path.exists(checkpoint_file):
@@ -16,7 +17,7 @@ if os.path.exists(checkpoint_file):
 while True:
     try:
         batch = occ.search(
-            scientificName='Vanessa cardui',
+            scientificName= species,
             country=['US', 'CA', 'MX'],
             hasCoordinate=True,
             limit=300,
@@ -45,3 +46,7 @@ while True:
 df = pd.DataFrame(all_records)
 df.to_csv('vanessa_cardui_gbif.csv', index=False)
 print(f"Complete: {len(df)} records")
+os.remove('checkpoint.csv') # Deletes checkpoint after master .csv is finalized
+
+
+

@@ -1,7 +1,9 @@
 import pandas as pd
 import geopandas as gpd
 
-df = pd.read_csv("vanessa_cardui_gbif.csv", low_memory=False) # low_memory=False removes error message
+file_name = 'danaus-plexippus-gbif.csv'
+
+df = pd.read_csv(file_name, low_memory=False) # low_memory=False removes error message
 
 # GBIF = ['decimalLatitude', 'decimalLongitude', 'eventDate']
 # iNaturalist = [latitude, longitude, observed_on]
@@ -14,7 +16,7 @@ cleaned_df['eventDate'] = pd.to_datetime(cleaned_df['eventDate'], format='ISO860
 # Remove rows with missing coordinates
 cleaned_df = cleaned_df.dropna(subset=['decimalLatitude', 'decimalLongitude', 'eventDate'])
 
-cleaned_df = cleaned_df[cleaned_df['eventDate'].dt.year >= 2017] # Cleaned data range start
+cleaned_df = cleaned_df[cleaned_df['eventDate'].dt.year >= 2015] # Study temporal range -> 2015 - present
 
 # Create GeoDataFrame
 gdf = gpd.GeoDataFrame(
@@ -24,5 +26,5 @@ gdf = gpd.GeoDataFrame(
 )
 
 # GeoJSON saves dates as strings, GeoPackage does not 
-gdf.to_file('vanessa-cardui-gbif.gpkg', driver='GPKG')
+gdf.to_file('danaus-plexippus-gbif.gpkg', driver='GPKG')
 print(f"Saved {len(gdf)} records to GeoPackage")

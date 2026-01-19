@@ -3,4 +3,7 @@
 *.geojson
 *.mp4
 *.qgz
-/vanessa-cardui-animation
+/climate-data
+/land-cover-data
+/occurrence-data
+/visualization

@@ -1,14 +1,16 @@
 # Study of Butterfly Ranges in North America: A Species Distribution Model Approach
 
+<!-- ![Video](visualization\vanessa-cardui-output\vanessa-cardui-animation.mp4) -->
+
 This repository contains scripts for procurement, cleaning, and processing of research-grade occurrences of North American butterflies. The aim is to visualize ranges, understand phenology, and estimate year-to-year range shifts.
 
 ## Environmental Variables
 
-- **Climate**: Temperature, precipitation, seasonality (WorldClim bioclimatic variables)
+- **Occurrence**: Species prescence (research grade)
+- **Climate**: Temperature, precipitation, seasonality (TerraClimate data)
 - **Elevation**: Altitude and topographic variation
-- **Land cover/Vegetation**: NDVI, habitat types (proxy for host plant availability)
-- **Temporal**: Seasonal flight periods, inter-annual variation
-- **Geographic coordinates**: Latitude, longitude for spatial structure
+- **Land cover**: NDVI, habitat types (proxy for host plant availability)
+
 
 ## Methods for Improving Model Accuracy
 
@@ -49,12 +51,22 @@ The main data source for this project is research-grade occurrence observations 
 
 This model was made with these caveats in mind, and efforts were made in the determination and configuration of species distribution model to best account for these constraints. 
 
+# Data Sources
 
+| Data Type | Source | Access | Notes |
+|-----------|--------|--------|-------|
+| Occurrence data | Global Biodiversity Information Facility [(GBIF)](https://www.gbif.org/) | [Python Package Index (PyPI)](https://pypi.org/project/pygbif/) | Presence only data |
+| Climate data | TerraClimate | [ClimatologyLab.org](https://www.climatologylab.org/terraclimate.html) | Individual, non-aggregated data |
+| Elevation data | Python Elevation Package | [Python Package Index (PyPI)](https://pypi.org/project/elevation/) | N/A |
+| Land cover | Commission for Environmental Cooperation (CEC) | [North American Land Cover, 2020 (Landsat, 30m)](https://www.cec.org/north-american-environmental-atlas/land-cover-30m-2020/) | Canada, US and Mexico. 30m spatial resolution. 2020 only. |
 
-# Sources
+## References
 
 - [A statistical explanation of MaxEnt for ecologists](https://onlinelibrary.wiley.com/doi/10.1111/j.1472-4642.2010.00725.x) - Jane Elith, et al
 - [Ensamble forecasting of species distributions](https://www.sciencedirect.com/science/article/abs/pii/S016953470600303X) - Miguel Araujo, et al
 - [Mapping species distributions with MaxEnt using a geographically biased sample of presence data: A performance assessment of methods for correcting sampling bias](https://pmc.ncbi.nlm.nih.gov/articles/PMC4018261/) - Yoan Fourcade, et al
 - [Sample selection bias and presence-only distribution models:
 implications for background and pseudo-absence data](https://esajournals.onlinelibrary.wiley.com/doi/10.1890/07-2153.1) - Steven Phillips, et al
+
+- Commission for Environmental Cooperation (CEC). 2024. "North American Environmental Atlas - Land Cover 2020 30m". North American Land Change Monitoring System. Canada Centre for Remote Sensing (CCRS), U.S. Geological Survey (USGS), Comisión Nacional para el Conocimiento y Uso de la Biodiversidad (CONABIO), Comisión Nacional Forestal (CONAFOR), Instituto Nacional de Estadística y Geografía (INEGI). Ed. 2.0, Raster digital data [30-m]. Available at https://www.cec.org/north-american-environmental-atlas/land-cover-30m-2020/
+

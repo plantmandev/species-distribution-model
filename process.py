@@ -6,10 +6,10 @@ from qgis.core import (
     QgsVectorLayerTemporalProperties
 )
 
-csv_path = ("C:/Users/sirpl/Projects/species-distribution-model/vanessa-cardui-gbif.gpkg")
+csv_path = ("C:/Users/sirpl/Projects/species-distribution-model/occurrence-data/danaus-plexippus/danaus-plexippus-gbif.gpkg")
 date_field = "eventDate"
 output_path = "/"
-species_name = "vanessa_cardui"
+species_name = "danaus-plexippus"
 
 layer = QgsVectorLayer(csv_path, species_name, "ogr")
 
