@@ -4,6 +4,28 @@
 
 This repository contains scripts for procurement, cleaning, and processing of research-grade occurrences of North American butterflies. The aim is to visualize ranges, understand phenology, and estimate year-to-year range shifts.
 
+# Species
+| Common name | Scientific name | IUCN Status |
+|-------------|-----------------|-------------|
+| Painted lady | *Vanessa cardui* | Least concern |
+| Monarch butterfly | *Danaus plexippus* | Least concern |
+| Tiger swallowtail | *Papilio glaucus* | N/A |
+| Cabbage white | *Pieris rapae* | N/A |
+| Spring azure | *Celastrina ladon* | N/A |
+| American Copper | *Lycaena phlaeas* | N/A |
+| American lady | *Vanessa virginiensis* | Least concern |
+| Black swallowtail | *Papilio polyxenes* | Least concern |
+| Cloudless sulfur | *Phoebis sennae* | Least concern |
+| Great spangled fritillary | *Speyeria cybele* | Least concern |
+| Variegated fritillary | *Euptoieta claudia* | N/A |
+| Red admiral | *Vanessa atalanta* | Least concern |
+| Zebra swallowtail | *Eurytides marcellus* | N/A |
+| Common buckeye | *Junonia coenia* | Least concern |
+| Colorado hairstreak | *Hypaurotis crysalus* | N/A |
+| Regal fritillary | *Speyeria idalia* | Vulnerable |
+| Dakota skipper | *Hesperia dacotae* | Endangered |
+| Ottoe skipper | *Hesperia ottoe* | Endangered |
+
 ## Environmental Variables
 
 - **Occurrence**: Species prescence (research grade)
