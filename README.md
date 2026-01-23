@@ -1,7 +1,5 @@
 # Study of Butterfly Ranges in North America: A Species Distribution Model Approach
 
-<!-- ![Video](visualization\vanessa-cardui-output\vanessa-cardui-animation.mp4) -->
-
 This repository contains scripts for procurement, cleaning, and processing of research-grade occurrences of North American butterflies. The aim is to visualize ranges, understand phenology, and estimate year-to-year range shifts.
 
 # Species
