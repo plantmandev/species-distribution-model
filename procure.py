@@ -1,6 +1,5 @@
 from pygbif import occurrences as occ
 import pandas as pd
-import os
 import json
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -8,301 +7,306 @@ import time
 import argparse
 from tqdm import tqdm
 
-# Setup species sub-directory if it doesn't exist
-def setup_species_folder(species_name):
-    safe_name = species_name.replace(' ', '-').lower()
-    species_dir = Path('occurrence-data') / safe_name
-    species_dir.mkdir(parents=True, exist_ok=True)
-    return species_dir, safe_name
+# Paths
+DATA_DIR = Path('occurrence-data')
+SPECIES_LIST = DATA_DIR / 'species-list.txt'
+QUEUE_FILE = DATA_DIR / 'queue.txt'
+COMPLETED_FILE = DATA_DIR / 'completed.json'
+FAILED_FILE = DATA_DIR / 'failed.json'
 
-# Saves download progress if interrupted 
-def save_checkpoint(species_dir, offset, total_records):
-    checkpoint = {
-        'offset': offset,
-        'total_records': total_records,
-        'last_updated': time.strftime('%Y-%m-%d %H:%M:%S')
-    }
-    checkpoint_file = species_dir / '.checkpoint.json'
-    with open(checkpoint_file, 'w') as f:
-        json.dump(checkpoint, f, indent=2)
+# Simple file helpers
+def read_lines(file):
+    return [line.strip() for line in open(file) if line.strip()] if file.exists() else []
 
-# Searches + initializes script from last checkpoint
-def load_checkpoint(species_dir):
-    checkpoint_file = species_dir / '.checkpoint.json'
-    if checkpoint_file.exists():
-        with open(checkpoint_file, 'r') as f:
-            return json.load(f)
-    return None
+def write_lines(file, lines):
+    DATA_DIR.mkdir(exist_ok=True)
+    file.write_text('\n'.join(lines) + '\n' if lines else '')
 
-# Determine total available records for species
-def get_total_count(species_name, year_from=2015):
-    try:
-        result = occ.search(
-            scientificName=species_name,
-            country=['US', 'CA', 'MX'],
-            hasCoordinate=True,
-            year=f'{year_from},2025',
-            limit=1
-        )
-        return result.get('count', 0)
-    except Exception as e:
-        print(f"[{species_name}] Error getting count: {e}")
-        return None
+def read_json(file):
+    return json.load(open(file)) if file.exists() else []
 
-# Occurrence data procurement function (single threaded)
-def download_species(species_name, year_from=2015 ):
-    # Setup folder structure
-    species_dir, safe_name = setup_species_folder(species_name)
-    output_file = species_dir / f'{safe_name}_gbif.csv'
-    temp_file = species_dir / f'{safe_name}_temp.csv'
+def write_json(file, data):
+    DATA_DIR.mkdir(exist_ok=True)
+    json.dump(data, open(file, 'w'), indent=2)
+
+def log_result(species, status):
+    """Remove from queue and log result"""
+    queue = read_lines(QUEUE_FILE)
+    write_lines(QUEUE_FILE, [s for s in queue if s != species])
     
-    all_records = []
+    file = COMPLETED_FILE if status == 'complete' else FAILED_FILE
+    log = read_json(file)
+    log.append({'species': species, 'time': time.strftime('%Y-%m-%d %H:%M:%S')})
+    write_json(file, log)
+
+# Core download
+def download_year(species, year, countries):
+    """Download up to 100k records for one year with retry logic"""
+    records = []
     offset = 0
     
-    # Load checkpoint if exists
-    checkpoint = load_checkpoint(species_dir)
-    if checkpoint:
-        offset = checkpoint['offset']
-        # Load existing temp data
-        if temp_file.exists():
-            existing = pd.read_csv(temp_file)
-            all_records = existing.to_dict('records')
-            print(f"[{species_name}] Resuming from {offset:,} records...")
-    
-    # Get total count for progress bar
-    total_count = get_total_count(species_name, year_from)
-    if total_count is None:
-        print(f"[{species_name}] Could not determine total count")
-        total_count = 0
-    else:
-        print(f"[{species_name}] Total available: {total_count:,} records")
-    
-    # Create progress bar
-    pbar = tqdm(
-        total=total_count if total_count > 0 else None,
-        desc=f"{species_name[:30]}",
-        unit="records",
-        initial=offset
-    )
-    
-    try:
-        while True:
+    while offset < 100000:
+        retries = 0
+        max_retries = 5
+        
+        while retries < max_retries:
             try:
                 batch = occ.search(
-                    scientificName=species_name,
-                    country=['US', 'CA', 'MX'],
+                    scientificName=species,
+                    country=countries,
                     hasCoordinate=True,
                     hasGeospatialIssue=False,
-                    year=f'{year_from},2025',
-                    limit=300,
+                    year=str(year),
+                    limit=min(300, 100000 - offset),
                     offset=offset
                 )
                 
-                if not batch['results']:
-                    break
+                if not batch.get('results'):
+                    return records
                 
-                # Filter for required fields
-                filtered_results = [
+                records.extend([
                     r for r in batch['results']
-                    if r.get('decimalLatitude') is not None 
-                    and r.get('decimalLongitude') is not None
-                    and r.get('eventDate') is not None
-                ]
+                    if r.get('decimalLatitude') and r.get('decimalLongitude') and r.get('eventDate')
+                ])
                 
-                all_records.extend(filtered_results)
                 offset += 300
-                pbar.update(len(filtered_results))
-                
-                # Save checkpoint every 1000 records
-                if offset % 1000 == 0:
-                    pd.DataFrame(all_records).to_csv(temp_file, index=False)
-                    save_checkpoint(species_dir, offset, len(all_records))
-                
                 time.sleep(0.1)
-                    
+                break  # Success, exit retry loop
+                
             except Exception as e:
-                pbar.write(f"[{species_name}] Error at offset {offset}: {e}")
-                pd.DataFrame(all_records).to_csv(temp_file, index=False)
-                save_checkpoint(species_dir, offset, len(all_records))
-                raise
+                if '429' in str(e):  # Rate limit
+                    retries += 1
+                    if retries < max_retries:
+                        wait = 2 ** retries  # Exponential backoff: 2, 4, 8, 16 seconds
+                        time.sleep(wait)
+                    else:
+                        return records  # Give up after max retries
+                else:
+                    return records  # Other error, stop this year
+    
+    return records
+
+def download_species(species, year_from, countries):
+    """Download all data for a species"""
+    
+    # Setup
+    safe_name = species.replace(' ', '-').lower()
+    species_dir = DATA_DIR / safe_name
+    species_dir.mkdir(parents=True, exist_ok=True)
+    output = species_dir / f'{safe_name}_gbif.csv'
+    
+    # Get count
+    try:
+        total = occ.search(
+            scientificName=species,
+            country=countries,
+            hasCoordinate=True,
+            year=f'{year_from},2025',
+            limit=1
+        ).get('count', 0)
+    except:
+        total = 0
+    
+    # Download (silent progress bar only)
+    all_records = []
+    pbar = tqdm(
+        total=total, 
+        desc=species[:30], 
+        bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{percentage:3.0f}%]',
+        ncols=80
+    )
+    
+    try:
+        for year in range(year_from, 2026):
+            year_data = download_year(species, year, countries)
+            all_records.extend(year_data)
+            pbar.update(len(year_data))
         
         pbar.close()
         
-        # Final processing
+        # Save
         df = pd.DataFrame(all_records)
+        df.to_csv(output, index=False)
         
-        # Validate year
-        if not df.empty and 'eventDate' in df.columns:
-            df['year'] = pd.to_datetime(df['eventDate'], errors='coerce').dt.year
-            df = df[df['year'] >= year_from]
-            df = df.drop('year', axis=1)
+        # Show completion with data quality info
+        if total > 0 and len(df) < total * 0.9:
+            print(f"[{species}] ⚠ {len(df):,}/{total:,} saved (some data may be missing)")
+        else:
+            print(f"[{species}] ✓ {len(df):,} saved")
         
-        # Save final file
-        df.to_csv(output_file, index=False)
-        print(f"[{species_name}] Complete: {len(df):,} records → {output_file}")
+        log_result(species, 'complete')
+        return len(df)
         
-        # Cleanup temp files
-        if temp_file.exists():
-            temp_file.unlink()
-        checkpoint_file = species_dir / '.checkpoint.json'
-        if checkpoint_file.exists():
-            checkpoint_file.unlink()
-        
-        return {'species': species_name, 'records': len(df), 'success': True}
-        
-    except KeyboardInterrupt:
-        pbar.close()
-        print(f"\n[{species_name}] Paused. Run again to resume from offset {offset}")
-        raise
     except Exception as e:
         pbar.close()
-        print(f"[{species_name}] Error: {e}")
-        return {'species': species_name, 'records': len(all_records), 'success': False}
+        print(f"[{species}] ✗ {e}")
+        log_result(species, 'failed')
+        return 0
 
-# Occurrece data procurement function (multi-threaded)
-def download_all_species(species_list, max_workers=3, year_from=2015):
-    results = []
+def run_batch(year_from, countries, workers, force=False):
+    """Process the species list"""
     
-    # Get all counts first
-    print("\nFetching total record counts...")
-    counts = {}
-    for species in species_list:
-        count = get_total_count(species, year_from)
-        counts[species] = count if count else 0
-        if count:
-            print(f"  {species}: {count:,} records")
+    # Load master list
+    if not SPECIES_LIST.exists():
+        print(f"Error: {SPECIES_LIST} not found")
+        print("Create it with one species name per line")
+        return
     
-    total_all = sum(counts.values())
-    print(f"\nTotal records to download: {total_all:,}\n")
+    master_list = read_lines(SPECIES_LIST)
+    if not master_list:
+        print(f"Error: {SPECIES_LIST} is empty")
+        return
     
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        future_to_species = {
-            executor.submit(download_species, species, year_from): species 
-            for species in species_list
+    # Initialize queue
+    existing_queue = read_lines(QUEUE_FILE)
+    queue = sorted(set(existing_queue + master_list))
+    write_lines(QUEUE_FILE, queue)
+    
+    # Skip completed (unless force)
+    completed = {item['species'] for item in read_json(COMPLETED_FILE)}
+    
+    if force:
+        pending = queue
+        print("🔄 Force mode: Re-downloading all species")
+    else:
+        pending = [s for s in queue if s not in completed]
+    
+    if not pending:
+        print("✓ All species completed!")
+        return
+    
+    # Show status
+    print(f"\n{'='*60}")
+    print(f"Species: {len(pending)} pending | {len(completed)} done | {len(read_json(FAILED_FILE))} failed")
+    print(f"Settings: {year_from}-2025 | {', '.join(countries)} | {workers} workers")
+    print(f"{'='*60}\n")
+    
+    # Download in parallel
+    total_records = 0
+    success_count = 0
+    
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = {
+            executor.submit(download_species, sp, year_from, countries): sp 
+            for sp in pending
         }
         
-        for future in as_completed(future_to_species):
-            species = future_to_species[future]
+        for future in as_completed(futures):
             try:
-                result = future.result()
-                results.append(result)
+                records = future.result()
+                if records > 0:
+                    success_count += 1
+                    total_records += records
             except KeyboardInterrupt:
-                print("\n\nDownload paused by user. Progress saved.")
+                print("\n⏸ Paused. Run again to resume.")
                 executor.shutdown(wait=False, cancel_futures=True)
                 raise
             except Exception as e:
-                print(f"[{species}] FAILED: {e}")
-                results.append({'species': species, 'records': 0, 'success': False})
+                sp = futures[future]
+                print(f"[{sp}] ✗ {e}")
+                log_result(sp, 'failed')
     
-    return results
+    # Summary
+    print(f"\n{'='*60}")
+    print(f"✓ {success_count}/{len(pending)} successful | {total_records:,} total records")
+    print(f"{'='*60}")
+
+def show_status():
+    """Show queue status"""
+    pending = read_lines(QUEUE_FILE)
+    completed = read_json(COMPLETED_FILE)
+    failed = read_json(FAILED_FILE)
+    
+    print(f"\n{'='*60}")
+    print("QUEUE STATUS")
+    print(f"{'='*60}")
+    
+    print(f"\nPending ({len(pending)}):")
+    for sp in pending:
+        print(f"  • {sp}")
+    
+    print(f"\nCompleted ({len(completed)}):")
+    for item in completed[-10:]:  # Last 10
+        print(f"  ✓ {item['species']} - {item['time']}")
+    if len(completed) > 10:
+        print(f"  ... and {len(completed) - 10} more")
+    
+    print(f"\nFailed ({len(failed)}):")
+    for item in failed:
+        print(f"  ✗ {item['species']} - {item['time']}")
+    
+    print(f"{'='*60}")
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Download GBIF occurrence data for Lepidoptera species',
+        description='Download GBIF data for species in occurrence-data/species-list.txt',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog='''
 Examples:
-  # Download single species
-  python procure.py --species "Danaus plexippus"
+  # Run with defaults (uses species-list.txt)
+  python procure.py
   
-  # Download from file
-  python procure.py --file species_list.txt
+  # Custom settings
+  python procure.py -w 5 -y 2010 -c US CA MX BR
   
-  # Adjust workers and year
-  python procure.py -f species_list.txt -w 8 -y 2017
+  # Re-download everything with new year range
+  python procure.py -y 2020 --force
+  
+  # Check status
+  python procure.py --status
+  
+  # Retry failed
+  python procure.py --retry
+  
+  # Clear and restart
+  python procure.py --clear
         '''
     )
     
-    parser.add_argument(
-        '--species', '-s',
-        nargs='+',
-        help='One or more species names'
-    )
-    
-    parser.add_argument(
-        '--file', '-f',
-        help='Path to text file with species names (one per line)'
-    )
-    
-    parser.add_argument(
-        '--workers', '-w',
-        type=int,
-        default=8,
-        help='Number of concurrent downloads (default: 8)'
-    )
-    
-    parser.add_argument(
-        '--year', '-y',
-        type=int,
-        default=2015,
-        help='Download records from this year onwards (default: 2015)'
-    )
+    parser.add_argument('-w', '--workers', type=int, default=3, help='Parallel downloads (default: 3, max recommended: 5)')
+    parser.add_argument('-y', '--year', type=int, default=2015, help='Start year (default: 2015)')
+    parser.add_argument('-c', '--countries', nargs='+', default=['US', 'CA', 'MX'], 
+                       help='Country codes (default: US CA MX)')
+    parser.add_argument('--status', action='store_true', help='Show queue status')
+    parser.add_argument('--retry', action='store_true', help='Retry failed species')
+    parser.add_argument('--clear', action='store_true', help='Clear queue/logs')
+    parser.add_argument('--force', action='store_true', help='Re-download all species (ignores completed)')
     
     args = parser.parse_args()
     
-    # Determine species list
-    species_list = []
+    # Warn about too many workers
+    if args.workers > 5:
+        print(f"⚠️  Warning: {args.workers} workers may cause rate limiting (429 errors)")
+        print("   Recommended: 3-5 workers for best performance\n")
+        time.sleep(2)
     
-    if args.file:
-        if not os.path.exists(args.file):
-            print(f"Error: File '{args.file}' not found")
+    # Handle commands
+    if args.status:
+        show_status()
+        return
+    
+    if args.clear:
+        for f in [QUEUE_FILE, COMPLETED_FILE, FAILED_FILE]:
+            f.unlink(missing_ok=True)
+        print("✓ Cleared!")
+        return
+    
+    if args.retry:
+        failed = [item['species'] for item in read_json(FAILED_FILE)]
+        if failed:
+            FAILED_FILE.unlink(missing_ok=True)
+            queue = read_lines(QUEUE_FILE)
+            write_lines(QUEUE_FILE, sorted(set(queue + failed)))
+            print(f"Added {len(failed)} species back to queue")
+        else:
+            print("No failed species to retry")
             return
-        
-        with open(args.file, 'r') as f:
-            species_list = [line.strip() for line in f if line.strip()]
-        print(f"Loaded {len(species_list)} species from {args.file}")
     
-    elif args.species:
-        species_list = args.species
-    
-    else:
-        print("Error: Please provide species via --species or --file")
-        parser.print_help()
-        return
-    
-    if not species_list:
-        print("Error: No species to download")
-        return
-    
-    # Display configuration
-    print("\n" + "="*50)
-    print(f"DOWNLOADING {len(species_list)} SPECIES")
-    print(f"Year range: {args.year}-2025")
-    print(f"Concurrent workers: {args.workers}")
-    print("="*50 + "\n")
-    
+    # Run
     try:
-        # Run downloads
-        results = download_all_species(
-            species_list, 
-            max_workers=args.workers, 
-            year_from=args.year
-        )
-        
-        # Print summary
-        print("\n" + "="*50)
-        print("DOWNLOAD SUMMARY")
-        print("="*50)
-        successful = 0
-        total_records = 0
-        for r in results:
-            status = "✓" if r['success'] else "✗"
-            print(f"{status} {r['species']}: {r['records']:,} records")
-            if r['success']:
-                successful += 1
-                total_records += r['records']
-        
-        print("="*50)
-        print(f"Success: {successful}/{len(species_list)} species")
-        print(f"Total records: {total_records:,}")
-        print("="*50)
-        
+        run_batch(args.year, args.countries, args.workers, args.force)
     except KeyboardInterrupt:
-        print("\n\nDownload interrupted. Re-run to resume.")
-
+        print("\n⏸ Interrupted")
 
 if __name__ == '__main__':
     main()
-
-# Usage example
-# python3 procure.py --s 'Danaus plexippus' --w 10
