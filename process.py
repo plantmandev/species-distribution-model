@@ -6,10 +6,10 @@ from qgis.core import (
     QgsVectorLayerTemporalProperties
 )
 
-csv_path = ("C:/Users/sirpl/Projects/species-distribution-model/occurrence-data/danaus-plexippus/danaus-plexippus-gbif.gpkg")
+csv_path = ("C:/Users/sirpl/Projects/species-distribution-model/occurrence-data/junonia-coenia/junonia-coenia-gbif.gpkg")
 date_field = "eventDate"
 output_path = "/"
-species_name = "danaus-plexippus"
+species_name = "junonia-coenia"
 
 layer = QgsVectorLayer(csv_path, species_name, "ogr")
 
@@ -26,3 +26,6 @@ else:
     temporal_props.setStartField(date_field)
     
     print(f"Temporal properties configured using field: {date_field}")
+
+# Paste in QGIS Python Console: 
+# exec(open('C:/Users/sirpl/Projects/species-distribution-model/process.py').read())

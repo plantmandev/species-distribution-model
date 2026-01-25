@@ -93,7 +93,7 @@ def download_species(species, year_from, countries):
     safe_name = species.replace(' ', '-').lower()
     species_dir = DATA_DIR / safe_name
     species_dir.mkdir(parents=True, exist_ok=True)
-    output = species_dir / f'{safe_name}_gbif.csv'
+    output = species_dir / f'{safe_name}-gbif.csv'
     
     # Get count
     try:
