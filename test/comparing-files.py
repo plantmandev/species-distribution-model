@@ -1,7 +1,7 @@
 import pandas as pd
 
-og = pd.read_csv("../occurrence-data/vanessa-atalanta/vanessa-atalanta-gbif.csv")
-# new = pd.read_csv("../occurrence-data/vanessa-atalanta/vanessa-atalanta_gbif.csv")
+og = pd.read_csv("/mnt/c/Users/sirpl/Projects/species-distribution-model/occurrence-data/danaus-plexippus/danaus-plexippus-gbif.csv")
+new = pd.read_csv("/mnt/c/Users/sirpl/Projects/species-distribution-model/occurrence-data/danaus-plexippus/danaus-plexippus_gbif.csv")
 
 print(f'OG length: {len(og)}')
-# print(f'new length: {len(new)}')
+print(f'new length: {len(new)}')
