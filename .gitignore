@@ -1,5 +1,5 @@
+# General
 *.csv
-*.gpkg
 *.geojson
 *.mp4
 *.qgz
@@ -7,3 +7,8 @@
 /land-cover-data
 /visualization
 /test
+
+# Occurrence data
+completed.json
+queue.txt
+species-list.txt
