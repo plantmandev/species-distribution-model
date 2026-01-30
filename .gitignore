@@ -9,6 +9,6 @@
 /test
 
 # Occurrence data
-completed.json
-queue.txt
-species-list.txt
+/occurrence-data/completed.json
+/occurrence-data/queue.txt
+/occurrence-data/species-list.txt

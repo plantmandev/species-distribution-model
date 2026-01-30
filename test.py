@@ -1,5 +1,6 @@
-import pandas as pd
+import geopandas as gpd
 
-df = pd.read_csv('vanessa_cardui_all.csv')
-print(df.head(15))
+species = 'vanessa-atalanta'
 
+gdf = gpd.read_file(f'occurrence-data/{species}/{species}-gbif.gpkg')
+gdf.to_file(f'{species}.geojson', driver='GeoJSON')
