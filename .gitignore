@@ -1,14 +1,8 @@
 # General
 *.csv
-*.geojson
 *.mp4
 *.qgz
 /climate-data
 /land-cover-data
 /visualization
 /test
-
-# Occurrence data
-/occurrence-data/completed.json
-/occurrence-data/queue.txt
-/occurrence-data/species-list.txt

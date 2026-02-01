@@ -1,0 +1,32 @@
+{
+"type": "FeatureCollection",
+"name": "panacea-regina-gbif",
+"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
+"features": [
+{ "type": "Feature", "properties": { "decimalLatitude": -1.110604, "decimalLongitude": -77.782705, "eventDate": "2015-10-19T12:57:00Z" }, "geometry": { "type": "Point", "coordinates": [ -77.782705, -1.110604 ] } },
+{ "type": "Feature", "properties": { "decimalLatitude": -12.355682, "decimalLongitude": -70.705863, "eventDate": "2016-08-29T14:10:10Z" }, "geometry": { "type": "Point", "coordinates": [ -70.705863, -12.355682 ] } },
+{ "type": "Feature", "properties": { "decimalLatitude": -5.680031, "decimalLongitude": -77.651375, "eventDate": "2016-10-04T00:00:00Z" }, "geometry": { "type": "Point", "coordinates": [ -77.651375, -5.680031 ] } },
+{ "type": "Feature", "properties": { "decimalLatitude": -0.471806, "decimalLongitude": -76.459129, "eventDate": "2017-12-15T00:00:00Z" }, "geometry": { "type": "Point", "coordinates": [ -76.459129, -0.471806 ] } },
+{ "type": "Feature", "properties": { "decimalLatitude": -0.471806, "decimalLongitude": -76.459129, "eventDate": "2017-12-17T00:00:00Z" }, "geometry": { "type": "Point", "coordinates": [ -76.459129, -0.471806 ] } },
+{ "type": "Feature", "properties": { "decimalLatitude": -0.471806, "decimalLongitude": -76.459129, "eventDate": "2017-12-19T00:00:00Z" }, "geometry": { "type": "Point", "coordinates": [ -76.459129, -0.471806 ] } },
+{ "type": "Feature", "properties": { "decimalLatitude": -0.471806, "decimalLongitude": -76.459129, "eventDate": "2017-12-18T00:00:00Z" }, "geometry": { "type": "Point", "coordinates": [ -76.459129, -0.471806 ] } },
+{ "type": "Feature", "properties": { "decimalLatitude": 0.035, "decimalLongitude": -74.598333, "eventDate": "2018-10-24T00:00:00Z" }, "geometry": { "type": "Point", "coordinates": [ -74.598333, 0.035 ] } },
+{ "type": "Feature", "properties": { "decimalLatitude": -0.592908, "decimalLongitude": -76.014962, "eventDate": "2018-10-18T20:07:00Z" }, "geometry": { "type": "Point", "coordinates": [ -76.014962, -0.592908 ] } },
+{ "type": "Feature", "properties": { "decimalLatitude": -4.248655, "decimalLongitude": -78.659909, "eventDate": "2018-11-24T09:23:00Z" }, "geometry": { "type": "Point", "coordinates": [ -78.659909, -4.248655 ] } },
+{ "type": "Feature", "properties": { "decimalLatitude": -0.638063, "decimalLongitude": -76.149834, "eventDate": "2019-01-24T20:34:00Z" }, "geometry": { "type": "Point", "coordinates": [ -76.149834, -0.638063 ] } },
+{ "type": "Feature", "properties": { "decimalLatitude": -0.636455, "decimalLongitude": -76.149644, "eventDate": "2019-05-20T11:00:23Z" }, "geometry": { "type": "Point", "coordinates": [ -76.149644, -0.636455 ] } },
+{ "type": "Feature", "properties": { "decimalLatitude": -9.974025, "decimalLongitude": -67.809819, "eventDate": "2019-09-02T14:59:00Z" }, "geometry": { "type": "Point", "coordinates": [ -67.809819, -9.974025 ] } },
+{ "type": "Feature", "properties": { "decimalLatitude": -12.754115, "decimalLongitude": -71.208227, "eventDate": "2019-10-03T13:43:00Z" }, "geometry": { "type": "Point", "coordinates": [ -71.208227, -12.754115 ] } },
+{ "type": "Feature", "properties": { "decimalLatitude": -0.183247, "decimalLongitude": -75.93747, "eventDate": "2020-01-24T21:32:35Z" }, "geometry": { "type": "Point", "coordinates": [ -75.93747, -0.183247 ] } },
+{ "type": "Feature", "properties": { "decimalLatitude": -1.461228, "decimalLongitude": -77.987216, "eventDate": "2020-04-24T19:56:00Z" }, "geometry": { "type": "Point", "coordinates": [ -77.987216, -1.461228 ] } },
+{ "type": "Feature", "properties": { "decimalLatitude": 5.421833, "decimalLongitude": -72.712667, "eventDate": "2021-03-29T00:00:00Z" }, "geometry": { "type": "Point", "coordinates": [ -72.712667, 5.421833 ] } },
+{ "type": "Feature", "properties": { "decimalLatitude": -1.918755, "decimalLongitude": -77.831338, "eventDate": "2021-09-26T12:09:00Z" }, "geometry": { "type": "Point", "coordinates": [ -77.831338, -1.918755 ] } },
+{ "type": "Feature", "properties": { "decimalLatitude": -6.075297, "decimalLongitude": -76.975761, "eventDate": "2022-09-13T12:36:00Z" }, "geometry": { "type": "Point", "coordinates": [ -76.975761, -6.075297 ] } },
+{ "type": "Feature", "properties": { "decimalLatitude": -0.522843, "decimalLongitude": -76.39558, "eventDate": "2024-02-10T12:52:00Z" }, "geometry": { "type": "Point", "coordinates": [ -76.39558, -0.522843 ] } },
+{ "type": "Feature", "properties": { "decimalLatitude": -0.014625, "decimalLongitude": -76.181406, "eventDate": "2024-10-28T20:16:00Z" }, "geometry": { "type": "Point", "coordinates": [ -76.181406, -0.014625 ] } },
+{ "type": "Feature", "properties": { "decimalLatitude": -12.655898, "decimalLongitude": -71.231748, "eventDate": "2024-11-13T07:54:00Z" }, "geometry": { "type": "Point", "coordinates": [ -71.231748, -12.655898 ] } },
+{ "type": "Feature", "properties": { "decimalLatitude": -11.888387, "decimalLongitude": -71.407488, "eventDate": "2025-02-05T12:00:00Z" }, "geometry": { "type": "Point", "coordinates": [ -71.407488, -11.888387 ] } },
+{ "type": "Feature", "properties": { "decimalLatitude": -12.782368, "decimalLongitude": -71.397398, "eventDate": "2025-11-28T00:36:00Z" }, "geometry": { "type": "Point", "coordinates": [ -71.397398, -12.782368 ] } },
+{ "type": "Feature", "properties": { "decimalLatitude": -0.540541, "decimalLongitude": -76.381778, "eventDate": "2025-11-26T14:44:47Z" }, "geometry": { "type": "Point", "coordinates": [ -76.381778, -0.540541 ] } }
+]
+}
