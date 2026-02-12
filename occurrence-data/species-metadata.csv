@@ -1,0 +1,69 @@
+species_name,common_name,status,extent,temporal_range,expected_obs,actual_obs,last_updated,taxonomic_rank,gbif_key,data_quality,color,notes,countries_observed,subregion
+Morpho,Blue Morpho,complete,"[-147.66, -69.41, 35.16, 52.37]",2015-01-01 to 2025-12-31,0.0,8815.0,2026-01-31,GENUS,,100.0,#0066FF,,,
+Caligo,Owl Butterflies,complete,"[-147.66, -69.41, 8.66, 52.37]",2015-01-01 to 2025-12-30,5315.0,5703.0,2026-01-31,GENUS,1918071.0,107.3,,,,
+Manataria hercyna,White-spotted Satyr,complete,"[-115.65, -40.80, -46.55, 31.37]",2015-01-14 to 2025-12-20,52.0,52.0,2026-01-31,SPECIES,1911933.0,100.0,,,,
+Papilio thoas,King Swallowtail,complete,"[-109.45, -38.89, 91.67, 32.47]",2015-01-07 to 2025-12-31,6247.0,6229.0,2026-01-31,SPECIES,1937885.0,99.7,,,,
+Siproeta stelenes,Malachite,complete,"[-115.65, -32.37, 8.81, 56.56]",2015-01-03 to 2025-12-31,10579.0,10517.0,2026-01-31,SPECIES,4299213.0,99.4,,,,
+Greta oto,Glasswing,complete,"[-85.47, 9.97, 12.57, 55.69]",2016-12-08 to 2024-05-06,58.0,56.0,2026-01-31,SPECIES,1895190.0,96.6,,,,
+Dryas iulia,Julia,complete,"[-120.76, -37.84, 105.36, 53.10]",2015-01-01 to 2025-12-31,15786.0,15499.0,2026-01-31,SPECIES,5128034.0,98.2,,,,
+Catopsilia florella,African migrant,complete,"[-85.35, -34.59, 63.43, 33.11]",2015-01-02 to 2025-12-29,7131.0,7089.0,2026-01-31,SPECIES,1919346.0,99.4,,,,
+Belenois aurota,Pioneer White,complete,"[-17.50, -34.41, 145.08, 36.27]",2015-01-02 to 2025-02-28,12691.0,8383.0,2026-01-31,SPECIES,1919181.0,66.1,,,,
+Danaus chrysippus,Plain Tiger,complete,"[-147.66, -69.41, 175.54, 51.25]",2015-01-01 to 2025-03-23,39878.0,7656.0,2026-01-31,SPECIES,7642610.0,19.2,,,,
+Bicyclus anynana,Squinting Bush Brown,complete,"[-0.70, -32.73, 85.36, 24.01]",2015-02-03 to 2023-12-27,1093.0,848.0,2026-01-31,SPECIES,9840414.0,77.6,,,,
+Papilio demodocus,Citrus Swallowtail,complete,"[-25.09, -34.34, 55.59, 17.17]",2015-01-01 to 2015-12-31,9208.0,505.0,2026-01-31,SPECIES,1938125.0,5.5,,,,
+Junonia hierta,Yellow Pansy,complete,"[-16.70, -34.40, 110.39, 32.13]",2015-01-02 to 2025-03-21,0.0,1799.0,2026-01-31,SPECIES,5130542.0,100.0,,,,
+Cacyreus marshalli,Geranium Bronze,complete,"[-17.98, -34.83, 55.55, 58.33]",2015-01-02 to 2025-12-31,0.0,17328.0,2026-01-31,SPECIES,1932752.0,100.0,,,,
+Melanitis leda,Common Evening Brown,complete,"[-179.87, -34.53, 178.47, 52.36]",2015-01-01 to 2025-12-31,0.0,13475.0,2026-01-31,SPECIES,1895956.0,100.0,,,,
+Danaus plexippus,Monarch,complete,"[-159.77, 0.00, 0.00, 53.41]",2024-01-01 to 2026-01-13,0.0,99900.0,2026-01-31,SPECIES,,100.0,,Auto-added from existing GeoJSON file,,
+Euptoieta claudia,Variegated Fritillary,complete,"[-123.70, 15.70, -64.13, 54.47]",2015-01-01 to 2025-12-31,0.0,42649.0,2026-01-31,SPECIES,,100.0,,Auto-added from existing GeoJSON file,,
+Hesperia dacotae,Dakota Skipper,complete,"[-101.00, 46.89, -96.49, 50.80]",2015-07-01 to 2025-07-17,0.0,34.0,2026-01-31,SPECIES,,100.0,,Auto-added from existing GeoJSON file,,
+Hesperia ottoe,Ottoe Skipper,complete,"[-105.38, 35.81, -87.37, 47.63]",2015-07-13 to 2025-07-26,0.0,34.0,2026-01-31,SPECIES,,100.0,,Auto-added from existing GeoJSON file,,
+Hypaurotis crysalus,Colorado Hairstreak,complete,"[-113.59, 17.34, -96.85, 41.31]",2015-05-29 to 2025-09-14,0.0,321.0,2026-01-31,SPECIES,,100.0,,Auto-added from existing GeoJSON file,,
+Junonia coenia,Common Buckeye,complete,"[-124.16, 15.87, -63.79, 50.71]",2015-01-01 to 2025-12-31,0.0,74300.0,2026-01-31,SPECIES,,100.0,,Auto-added from existing GeoJSON file,,
+Panacea regina,Queen Flasher,complete,"[-78.66, -12.78, -67.81, 5.42]",2015-10-19 to 2025-11-28,0.0,25.0,2026-01-31,SPECIES,,100.0,,Auto-added from existing GeoJSON file,,
+Papilio polyxenes,Black Swallowtail,complete,"[-122.10, 15.17, -59.94, 53.44]",2015-01-01 to 2025-12-28,0.0,84695.0,2026-01-31,SPECIES,,100.0,,Auto-added from existing GeoJSON file,,
+Phoebis sennae,Cloudless Giant Sulphur,complete,"[-121.84, 14.87, -69.96, 46.68]",2015-01-01 to 2025-12-30,0.0,30596.0,2026-01-31,SPECIES,,100.0,,Auto-added from existing GeoJSON file,,
+Speyeria cybele,Great Spangled Fritillary,complete,"[-124.11, 29.68, -59.82, 56.71]",2015-01-01 to 2025-10-17,0.0,36994.0,2026-01-31,SPECIES,,100.0,,Auto-added from existing GeoJSON file,,
+Speyeria idalia,Regal Fritillary,complete,"[-110.73, 35.22, -75.61, 48.17]",2015-01-01 to 2025-09-18,0.0,879.0,2026-01-31,SPECIES,,100.0,,Auto-added from existing GeoJSON file,,
+Vanessa atalanta,Red Admiral,complete,"[-156.35, 16.10, -52.63, 64.85]",2015-01-01 to 2025-12-31,0.0,91105.0,2026-01-31,SPECIES,,100.0,,Auto-added from existing GeoJSON file,,
+Vanessa cardui,Painted Lady,complete,"[-159.79, 16.00, -52.63, 64.86]",2017-01-05 to 2026-01-12,0.0,55779.0,2026-01-31,SPECIES,,100.0,,Auto-added from existing GeoJSON file,,
+Phyciodes tharos,Pearl Crescent,complete,"[-150.11, 17.23, -52.69, 67.41]",2015-01-01 to 2024-03-26,99172.0,10065.0,2026-01-31,SPECIES,1918988.0,10.1,,,"CA,MX,US",Northern America
+Speyeria aphrodite,Aphrodite Fritillary,complete,"[-125.07, 33.94, -60.98, 60.03]",2015-01-01 to 2025-10-03,5215.0,4577.0,2026-01-31,SPECIES,1905301.0,87.8,,,"CA,US",Northern America
+Speyeria callipe,Callippe Fritillary,,,,,,,,,,,,,
+Celastrina,Azure,,,,,,,,,,,,,
+Cupido,Tailed-blue,,,,,,,,,,,,,
+Calycopis cecrops,Red-banded Hairstreak,complete,"[-99.12, 0.97, -69.95, 42.76]",2015-03-04 to 2025-04-27,0.0,980.0,2026-01-31,SPECIES,1922851.0,100.0,,,"CO,HN,US",Northern America
+Pholisora catullus,Common Sootywing,complete,"[-123.38, 19.04, -71.34, 50.68]",2015-01-01 to 2021-07-31,0.0,625.0,2026-01-31,SPECIES,1951217.0,100.0,,,"CA,MX,US",Northern America
+Satyrium calanus,Banded Hairstreak,complete,"[-121.90, 28.49, -70.36, 45.82]",2025-04-12 to 2025-06-30,0.0,300.0,2026-01-31,SPECIES,5139029.0,100.0,,,US,Northern America
+Callophrys gryneus,Juniper Hairstreak,complete,"[-125.05, 28.48, -70.12, 50.49]",2015-01-24 to 2020-05-31,0.0,459.0,2026-01-31,SPECIES,4300347.0,100.0,,,"CA,US",Northern America
+Lycaena heteronea,Blue Copper,complete,"[-122.73, 38.92, -105.22, 49.46]",2024-07-12 to 2025-08-12,0.0,29.0,2026-01-31,SPECIES,5139346.0,100.0,,,"CA,US",Northern America
+Erynnis baptisiae,Wild Indigo Duskywing,complete,"[-97.48, 29.30, -69.24, 45.46]",2017-03-25 to 2022-07-30,0.0,892.0,2026-01-31,SPECIES,5977220,100.0,,,"CA,US",Northern America
+Polyira jalysus
+Parthenos aspila
+Parthenos sylvia
+Lycaena alciphron
+Ecyclodes gavissima
+Hypolimnas bolina
+Panacea regina
+Apatura ilia
+Eogenes alcides
+Siproeta stelenes
+Heliconius erato
+Bebearia sophus
+Dione moneta
+Chlosyne hoffmanni
+Euphaedra janetta
+Marpesia zerynthia
+"Marpesia marcella ssp. valetta "
+Euphaedra neophron
+Euthalia formosana
+Papilio maackii
+Calosaturnia
+Lexias pardalis
+Alcides metaurus
+Papilio palinutus
+Phocides pigmalion
+Erebia cassioides
+Nymphalis antiopa
+Catacroptera cloanthe
+Fabriciana adippe
