@@ -96,3 +96,6 @@ implications for background and pseudo-absence data](https://esajournals.onlinel
 
 ### 1/31/25
 Encountered gaps in GBIF data richness. Species Apodemia mormo was not found in the database while having significant observations in the last 10 years (though cross-corraboration with iNaturalist). Might want to add a feature to procure inaturalist data if GBIF data is non-existent or unavailable. Make manual warning + easy terminal shortcut to import from inaturalist. 
+
+
+[View SQL Schema](https://dbdiagram.io/d/698d781bbd82f5fce27b99a9)
