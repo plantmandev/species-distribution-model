@@ -195,7 +195,8 @@ def read_metadata():
         print(f"\n{'='*60}\n")
         return None
     
-    return pd.read_csv(METADATA_FILE)
+    return pd.read_csv(METADATA_FILE, dtype={'gbif_key': str})
+
 
 def write_metadata(df):
     """Write metadata CSV"""
@@ -492,10 +493,18 @@ def download_year(species, year, countries=None):
 def convert_to_geojson(csv_file):
     """Convert CSV to GeoJSON and return metadata"""
     try:
+        if csv_file.stat().st_size == 0:
+            csv_file.unlink()
+            return None
+
         df = pd.read_csv(csv_file, low_memory=False)
+
+        # Add this — header-only file passes the size check but has no rows
+        if df.empty:
+            csv_file.unlink()
+            return None
         
         keep_columns = ['decimalLatitude', 'decimalLongitude', 'eventDate']
-        # Also keep countryCode if it exists
         if 'countryCode' in df.columns:
             keep_columns.append('countryCode')
         
@@ -526,7 +535,6 @@ def convert_to_geojson(csv_file):
         max_date = gdf['eventDate'].max().strftime('%Y-%m-%d')
         temporal_range = f"{min_date} to {max_date}"
         
-        # Extract countries and subregion
         countries_str, subregion = get_countries_and_subregion_from_geojson(gdf)
         
         return {
@@ -540,7 +548,6 @@ def convert_to_geojson(csv_file):
     except Exception as e:
         print(f"  ✗ Conversion error: {e}")
         return None
-
 def download_species(species, year_from, countries=None, convert=True):
     """Download occurrence data for a species or genus"""
     
