@@ -132,6 +132,7 @@ def run_check(refresh_expected=False, mark_pending=False, year_from=2015):
 
     problems   = []
     complete   = 0
+    ingested   = 0
     total_rows = len(df)
 
     print(f"\n{'='*60}")
@@ -142,11 +143,17 @@ def run_check(refresh_expected=False, mark_pending=False, year_from=2015):
 
     for idx, row in df.iterrows():
         species_name = row['species_name']
+        prior_status = str(row.get('status', '')).strip()
+
+        # Already in the database — file deletion is expected, not a problem
+        if prior_status == 'ingested':
+            ingested += 1
+            continue
+
         actual, file_exists = get_actual_count(species_name)
 
         # --- File not found ---
         if not file_exists:
-            prior_status = str(row.get('status', '')).strip()
             problems.append({
                 'species':      species_name,
                 'status':       'missing',
@@ -183,7 +190,7 @@ def run_check(refresh_expected=False, mark_pending=False, year_from=2015):
             problems.append({
                 'species':      species_name,
                 'status':       status,
-                'prior_status': str(row.get('status', '')).strip(),
+                'prior_status': prior_status,
                 'actual':       actual,
                 'expected':     expected,
                 'pct':          pct
@@ -200,6 +207,7 @@ def run_check(refresh_expected=False, mark_pending=False, year_from=2015):
     partial    = sum(1 for p in problems if p['status'] == 'partial')
 
     print(f"  ✓ Complete  : {complete}")
+    print(f"  ✓ Ingested  : {ingested}  (in database, files removed)")
     print(f"  ⚠ Partial   : {partial}")
     print(f"  ✗ Incomplete: {incomplete}")
     print(f"  ✗ Missing   : {missing}")

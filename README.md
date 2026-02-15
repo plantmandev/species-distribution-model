@@ -99,3 +99,6 @@ Encountered gaps in GBIF data richness. Species Apodemia mormo was not found in 
 
 
 [View SQL Schema](https://dbdiagram.io/d/698d781bbd82f5fce27b99a9)
+
+
+Lepidoptera host plants scrapped from United Kingdom Natural History Museum Database [data](https://data.nhm.ac.uk/dataset/hosts)

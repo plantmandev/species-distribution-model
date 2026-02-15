@@ -405,11 +405,37 @@ def get_genus_species(genus_name):
 # Download helpers
 # ---------------------------------------------------------------------------
 
-def download_year(species, year, countries=None):
-    """Download up to 100k records for one year with retry/backoff."""
+GBIF_MAX_OFFSET = 100000   # hard API limit
+CHUNK_THRESHOLD = 80000    # year count above this triggers monthly chunking
+
+
+def _fetch_count(species, year, month=None, countries=None):
+    """Return GBIF record count for a species/year/month combination."""
+    try:
+        params = {
+            'scientificName':     species,
+            'hasCoordinate':      True,
+            'hasGeospatialIssue': False,
+            'year':               str(year),
+            'limit':              1,
+        }
+        if month:
+            params['month'] = str(month)
+        if countries:
+            params['country'] = countries
+        return occ.search(**params).get('count', 0)
+    except Exception:
+        return 0
+
+
+def _download_page(species, year, month=None, countries=None):
+    """
+    Download up to GBIF_MAX_OFFSET records for one year (and optional month)
+    with retry/backoff. Returns list of raw records.
+    """
     records, offset = [], 0
 
-    while offset < 100000:
+    while offset < GBIF_MAX_OFFSET:
         retries = 0
         while retries < 5:
             try:
@@ -418,9 +444,11 @@ def download_year(species, year, countries=None):
                     'hasCoordinate':      True,
                     'hasGeospatialIssue': False,
                     'year':               str(year),
-                    'limit':              min(300, 100000 - offset),
-                    'offset':             offset
+                    'limit':              min(300, GBIF_MAX_OFFSET - offset),
+                    'offset':             offset,
                 }
+                if month:
+                    params['month'] = str(month)
                 if countries:
                     params['country'] = countries
 
@@ -446,6 +474,41 @@ def download_year(species, year, countries=None):
                         return records
                 else:
                     return records
+
+    return records
+
+
+def download_year(species, year, countries=None):
+    """
+    Download all records for a species in a given year.
+    If the year has more than CHUNK_THRESHOLD records, splits into
+    monthly batches to stay under the GBIF 100k offset hard limit.
+    Returns list of raw records.
+    """
+    year_count = _fetch_count(species, year, countries=countries)
+
+    if year_count == 0:
+        return []
+
+    # Fast path — year fits in a single query
+    if year_count <= CHUNK_THRESHOLD:
+        return _download_page(species, year, countries=countries)
+
+    # Slow path — split into monthly chunks
+    print(f"    [{species}] {year}: {year_count:,} records — splitting by month")
+    records = []
+
+    for month in range(1, 13):
+        month_count = _fetch_count(species, year, month=month, countries=countries)
+        if month_count == 0:
+            continue
+
+        if month_count > GBIF_MAX_OFFSET:
+            print(f"    \u26a0 {year}-{month:02d}: {month_count:,} records exceeds API limit, capping at {GBIF_MAX_OFFSET:,}")
+
+        month_records = _download_page(species, year, month=month, countries=countries)
+        records.extend(month_records)
+        time.sleep(0.1)
 
     return records
 
@@ -768,8 +831,8 @@ def run_batch(year_from, countries, workers, force=False, skip_conversion=False)
         skipped = []
         print("🔄 Force mode: Re-downloading all species")
     else:
-        pending = df[df['status'] != 'complete']['species_name'].tolist()
-        skipped = df[df['status'] == 'complete']['species_name'].tolist()
+        pending = df[~df['status'].isin(['complete', 'ingested'])]['species_name'].tolist()
+        skipped = df[df['status'].isin(['complete', 'ingested'])]['species_name'].tolist()
 
     if not pending:
         print(f"\n✓ All {len(df)} species up to date!")
@@ -817,12 +880,12 @@ def show_status():
     print("METADATA STATUS")
     print(f"{'='*60}\n")
 
-    for status in ['complete', 'pending', 'error']:
+    for status in ['complete', 'ingested', 'pending', 'error']:
         subset = df[df['status'] == status]
         if len(subset) > 0:
             print(f"{status.upper()} ({len(subset)}):")
             for _, row in subset.iterrows():
-                if status == 'complete':
+                if status in ('complete', 'ingested'):
                     print(f"  ✓ {row['species_name']}: {row['actual_obs']:,} obs ({row['data_quality']:.1f}%)")
                 else:
                     print(f"  • {row['species_name']}")
