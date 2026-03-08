@@ -143,6 +143,5 @@ print("\n" + "=" * 60)
 print(f"Total layers in project: {len(QgsProject.instance().mapLayers())}")
 print("=" * 60)
 
-
 # Quick Run
 # exec(open('C:/Users/sirpl/Projects/species-distribution-model/process.py').read())
