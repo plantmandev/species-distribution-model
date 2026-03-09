@@ -1,0 +1,25 @@
+{
+"type": "FeatureCollection",
+"name": "cymothoe-hobarti-gbif",
+"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
+"features": [
+{ "type": "Feature", "properties": { "decimalLatitude": 0.282731, "decimalLongitude": 34.751863, "eventDate": "2015-02-03T11:02:00Z", "countryCode": "KE" }, "geometry": { "type": "Point", "coordinates": [ 34.751863, 0.282731 ] } },
+{ "type": "Feature", "properties": { "decimalLatitude": 0.811058, "decimalLongitude": 29.448487, "eventDate": "2017-01-17T00:00:00Z", "countryCode": "CD" }, "geometry": { "type": "Point", "coordinates": [ 29.448487, 0.811058 ] } },
+{ "type": "Feature", "properties": { "decimalLatitude": 0.836208, "decimalLongitude": 30.156323, "eventDate": "2018-02-07T09:25:00Z", "countryCode": "UG" }, "geometry": { "type": "Point", "coordinates": [ 30.156323, 0.836208 ] } },
+{ "type": "Feature", "properties": { "decimalLatitude": 0.439534, "decimalLongitude": 30.393528, "eventDate": "2018-07-09T10:31:00Z", "countryCode": "UG" }, "geometry": { "type": "Point", "coordinates": [ 30.393528, 0.439534 ] } },
+{ "type": "Feature", "properties": { "decimalLatitude": 0.453066, "decimalLongitude": 30.390932, "eventDate": "2021-06-24T12:03:34Z", "countryCode": "UG" }, "geometry": { "type": "Point", "coordinates": [ 30.390932, 0.453066 ] } },
+{ "type": "Feature", "properties": { "decimalLatitude": 0.205971, "decimalLongitude": 34.935254, "eventDate": "2021-08-14T03:15:00Z", "countryCode": "KE" }, "geometry": { "type": "Point", "coordinates": [ 34.935254, 0.205971 ] } },
+{ "type": "Feature", "properties": { "decimalLatitude": -2.884995, "decimalLongitude": 25.249805, "eventDate": "2021-11-14T14:26:34Z", "countryCode": "CD" }, "geometry": { "type": "Point", "coordinates": [ 25.249805, -2.884995 ] } },
+{ "type": "Feature", "properties": { "decimalLatitude": 0.436396, "decimalLongitude": 30.366706, "eventDate": "2022-01-30T00:00:00Z", "countryCode": "UG" }, "geometry": { "type": "Point", "coordinates": [ 30.366706, 0.436396 ] } },
+{ "type": "Feature", "properties": { "decimalLatitude": 0.436396, "decimalLongitude": 30.366706, "eventDate": "2023-01-29T11:30:00Z", "countryCode": "UG" }, "geometry": { "type": "Point", "coordinates": [ 30.366706, 0.436396 ] } },
+{ "type": "Feature", "properties": { "decimalLatitude": 0.205614, "decimalLongitude": 34.877125, "eventDate": "2023-09-04T13:28:00Z", "countryCode": "KE" }, "geometry": { "type": "Point", "coordinates": [ 34.877125, 0.205614 ] } },
+{ "type": "Feature", "properties": { "decimalLatitude": 0.295259, "decimalLongitude": 34.856397, "eventDate": "2023-11-25T10:32:00Z", "countryCode": "KE" }, "geometry": { "type": "Point", "coordinates": [ 34.856397, 0.295259 ] } },
+{ "type": "Feature", "properties": { "decimalLatitude": 0.403263, "decimalLongitude": 30.383414, "eventDate": "2024-05-19T23:31:00Z", "countryCode": "UG" }, "geometry": { "type": "Point", "coordinates": [ 30.383414, 0.403263 ] } },
+{ "type": "Feature", "properties": { "decimalLatitude": 2.585635, "decimalLongitude": 16.62913, "eventDate": "2024-09-01T11:30:10Z", "countryCode": "CG" }, "geometry": { "type": "Point", "coordinates": [ 16.62913, 2.585635 ] } },
+{ "type": "Feature", "properties": { "decimalLatitude": -2.760206, "decimalLongitude": 20.378654, "eventDate": "2024-10-29T13:34:00Z", "countryCode": "CD" }, "geometry": { "type": "Point", "coordinates": [ 20.378654, -2.760206 ] } },
+{ "type": "Feature", "properties": { "decimalLatitude": 1.794084, "decimalLongitude": 31.582664, "eventDate": "2020-02-16T04:03:00Z", "countryCode": "UG" }, "geometry": { "type": "Point", "coordinates": [ 31.582664, 1.794084 ] } },
+{ "type": "Feature", "properties": { "decimalLatitude": 0.2513, "decimalLongitude": 34.877398, "eventDate": "2020-02-29T00:00:00Z", "countryCode": "KE" }, "geometry": { "type": "Point", "coordinates": [ 34.877398, 0.2513 ] } },
+{ "type": "Feature", "properties": { "decimalLatitude": 0.24499, "decimalLongitude": 34.87421, "eventDate": "2020-02-29T10:04:00Z", "countryCode": "KE" }, "geometry": { "type": "Point", "coordinates": [ 34.87421, 0.24499 ] } },
+{ "type": "Feature", "properties": { "decimalLatitude": 0.244359, "decimalLongitude": 34.874382, "eventDate": "2020-02-29T10:03:00Z", "countryCode": "KE" }, "geometry": { "type": "Point", "coordinates": [ 34.874382, 0.244359 ] } }
+]
+}

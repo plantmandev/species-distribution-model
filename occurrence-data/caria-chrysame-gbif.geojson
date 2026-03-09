@@ -1,0 +1,11 @@
+{
+"type": "FeatureCollection",
+"name": "caria-chrysame-gbif",
+"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
+"features": [
+{ "type": "Feature", "properties": { "decimalLatitude": -15.806825, "decimalLongitude": -67.557004, "eventDate": "2018-12-26T18:42:00Z", "countryCode": "BO" }, "geometry": { "type": "Point", "coordinates": [ -67.557004, -15.806825 ] } },
+{ "type": "Feature", "properties": { "decimalLatitude": -0.622952, "decimalLongitude": -77.602818, "eventDate": "2019-12-03T10:22:00Z", "countryCode": "EC" }, "geometry": { "type": "Point", "coordinates": [ -77.602818, -0.622952 ] } },
+{ "type": "Feature", "properties": { "decimalLatitude": -0.622952, "decimalLongitude": -77.602818, "eventDate": "2021-09-19T11:38:00Z", "countryCode": "EC" }, "geometry": { "type": "Point", "coordinates": [ -77.602818, -0.622952 ] } },
+{ "type": "Feature", "properties": { "decimalLatitude": -0.622952, "decimalLongitude": -77.602818, "eventDate": "2021-09-19T12:46:00Z", "countryCode": "EC" }, "geometry": { "type": "Point", "coordinates": [ -77.602818, -0.622952 ] } }
+]
+}
