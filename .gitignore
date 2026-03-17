@@ -1,4 +1,5 @@
 # General
+*.geojson
 *.mp4
 *.qgz
 /climate-data
