@@ -10,11 +10,6 @@
 { "type": "Feature", "properties": { "decimalLatitude": 19.413889, "decimalLongitude": 98.915, "eventDate": "2023-04-01T09:34:00Z", "countryCode": "TH" }, "geometry": { "type": "Point", "coordinates": [ 98.915, 19.413889 ] } },
 { "type": "Feature", "properties": { "decimalLatitude": 19.365622, "decimalLongitude": 99.495846, "eventDate": "2023-07-05T16:45:00Z", "countryCode": "TH" }, "geometry": { "type": "Point", "coordinates": [ 99.495846, 19.365622 ] } },
 { "type": "Feature", "properties": { "decimalLatitude": 13.816283, "decimalLongitude": 100.55351, "eventDate": "2024-06-26T08:05:00Z", "countryCode": "TH" }, "geometry": { "type": "Point", "coordinates": [ 100.55351, 13.816283 ] } },
-{ "type": "Feature", "properties": { "decimalLatitude": 13.412291, "decimalLongitude": 103.864642, "eventDate": "2024-07-29T11:42:00Z", "countryCode": "KH" }, "geometry": { "type": "Point", "coordinates": [ 103.864642, 13.412291 ] } },
-{ "type": "Feature", "properties": { "decimalLatitude": 11.5875, "decimalLongitude": 92.6305, "eventDate": "2025-01-05T15:50:00Z", "countryCode": "IN" }, "geometry": { "type": "Point", "coordinates": [ 92.6305, 11.5875 ] } },
-{ "type": "Feature", "properties": { "decimalLatitude": 11.5115, "decimalLongitude": 92.6929, "eventDate": "2025-01-06T06:57:00Z", "countryCode": "IN" }, "geometry": { "type": "Point", "coordinates": [ 92.6929, 11.5115 ] } },
-{ "type": "Feature", "properties": { "decimalLatitude": 10.156108, "decimalLongitude": 104.625596, "eventDate": "2025-01-01T06:01:00Z", "countryCode": "VN" }, "geometry": { "type": "Point", "coordinates": [ 104.625596, 10.156108 ] } },
-{ "type": "Feature", "properties": { "decimalLatitude": 11.423508, "decimalLongitude": 107.428842, "eventDate": "2025-04-30T00:00:00Z", "countryCode": "VN" }, "geometry": { "type": "Point", "coordinates": [ 107.428842, 11.423508 ] } },
-{ "type": "Feature", "properties": { "decimalLatitude": 15.754925, "decimalLongitude": 101.981858, "eventDate": "2015-09-13T11:47:00Z", "countryCode": "TH" }, "geometry": { "type": "Point", "coordinates": [ 101.981858, 15.754925 ] } }
+{ "type": "Feature", "properties": { "decimalLatitude": 13.412291, "decimalLongitude": 103.864642, "eventDate": "2024-07-29T11:42:00Z", "countryCode": "KH" }, "geometry": { "type": "Point", "coordinates": [ 103.864642, 13.412291 ] } }
 ]
 }

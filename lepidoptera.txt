@@ -1,11 +1,25 @@
+------ EXPLORE ------
 Anastrus (Genus)
 Actinote (Genus)
 Marpesia (Genus)
 Charaxes (Genus)
+Chlosyne (Genus)
 Sphingidae (Family)
 Adelotypa (Family)
 Saturniidae (Family)
 Hamadryas (Genus)
 Elymnias (Genus)
 Entheus (Genus) 
+Euphaedra (Genus)
+Diaethria (Genus)
+Catagramma (Genus)
+---------------------
 
+------ NO DATA ------
+Metacharis regalis
+Fountainea nobilis
+---------------------
+
+------ TO ADD -------
+
+---------------------
