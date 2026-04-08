@@ -5,6 +5,11 @@ Reads species-metadata.csv, routes each species to the correct table
 based on the 'category' column, links host plants, then deletes the
 GeoJSON file and marks the row as 'ingested'.
 
+If a row's 'notes' column contains '#drop', the species is deleted from
+the database and removed from the metadata CSV entirely.
+
+Duplicates are prevented using stable GBIF occurrence IDs as source_id.
+
 Prerequisites:
   - setup_database.sql has been run
   - species-metadata.csv has 'category' and 'host_plants' columns
@@ -17,8 +22,8 @@ Usage:
   python ingest.py --dry-run                        # preview without writing
   python ingest.py --species "Morpho"               # ingest one species only
   python ingest.py --no-delete                      # ingest but keep GeoJSON files
-  python ingest.py --populate-hosts resource.csv    # clean HOSTS db + populate metadata only
   python ingest.py --populate-hosts resource.csv    # populate host plants then ingest
+  python ingest.py --populate-hosts resource.csv --hosts-only  # populate only
 """
 
 import os
@@ -36,8 +41,8 @@ import psycopg2.extras
 
 DATA_DIR           = Path('occurrence-data')
 METADATA_FILE      = DATA_DIR / 'species-metadata.csv'
-HOSTS_CLEANED_FILE  = DATA_DIR / 'hosts-cleaned.csv'
-HOSTS_RAW_FILE      = DATA_DIR / 'host-plant-info.csv'
+HOSTS_CLEANED_FILE = DATA_DIR / 'hosts-cleaned.csv'
+HOSTS_RAW_FILE     = DATA_DIR / 'host-plant-info.csv'
 
 DB_CONFIG = {
     'host':     os.environ.get('DB_HOST',     'localhost'),
@@ -49,7 +54,6 @@ DB_CONFIG = {
 
 BATCH_SIZE = 500
 
-# Normalize legacy family names to APG IV equivalents
 FAMILY_NORMALIZE = {
     'Leguminosae (C)':  'Fabaceae',
     'Leguminosae (M)':  'Fabaceae',
@@ -95,6 +99,93 @@ def connect():
     return psycopg2.connect(**DB_CONFIG)
 
 
+def has_drop_note(row):
+    """Return True if the row's notes field contains '#drop'."""
+    notes = str(row.get('notes', '')).strip()
+    return '#drop' in notes.lower()
+
+
+# ---------------------------------------------------------------------------
+# Drop species from database and metadata
+# ---------------------------------------------------------------------------
+
+def drop_flagged_species(df, conn, dry_run=False):
+    """
+    For any row with '#drop' in notes:
+      - Delete all occurrences from the database
+      - Delete the species row (lepidoptera only)
+      - Delete the GeoJSON file if it still exists
+      - Remove the row from the metadata DataFrame
+
+    Returns the cleaned DataFrame.
+    """
+    flagged = [(idx, row) for idx, row in df.iterrows() if has_drop_note(row)]
+
+    if not flagged:
+        return df
+
+    print(f"\n{'='*60}")
+    print(f"DROPPING {len(flagged)} FLAGGED SPECIES (#drop)")
+    print(f"{'='*60}\n")
+
+    indices_to_drop = []
+
+    for idx, row in flagged:
+        species_name = row['species_name']
+        category     = str(row.get('category', '')).strip().lower()
+
+        print(f"  ✗ {species_name}")
+
+        if not dry_run:
+            try:
+                with conn.cursor() as cur:
+                    if category == 'lepidoptera':
+                        # Delete occurrences via species_id foreign key
+                        cur.execute("""
+                            DELETE FROM lepidoptera_occurrences
+                            WHERE species_id = (
+                                SELECT id FROM species WHERE scientific_name = %s
+                            );
+                        """, (species_name,))
+                        cur.execute("""
+                            DELETE FROM species_host_plants
+                            WHERE species_id = (
+                                SELECT id FROM species WHERE scientific_name = %s
+                            );
+                        """, (species_name,))
+                        cur.execute(
+                            "DELETE FROM species WHERE scientific_name = %s;",
+                            (species_name,)
+                        )
+                    elif category == 'host_plant':
+                        cur.execute(
+                            "DELETE FROM host_plant_occurrences WHERE scientific_name = %s;",
+                            (species_name,)
+                        )
+                conn.commit()
+            except Exception as e:
+                conn.rollback()
+                print(f"    ⚠ DB error for {species_name}: {e}")
+                continue
+
+        # Delete GeoJSON if still on disk
+        geojson_path = get_geojson_path(species_name)
+        if geojson_path.exists() and not dry_run:
+            geojson_path.unlink()
+            print(f"    deleted {geojson_path.name}")
+
+        indices_to_drop.append(idx)
+
+    if not dry_run:
+        df = df.drop(indices_to_drop).reset_index(drop=True)
+        print(f"\n  ✓ Removed {len(indices_to_drop)} rows from metadata.")
+    else:
+        print(f"\n  DRY RUN — {len(indices_to_drop)} rows would be removed.")
+
+    print()
+    return df
+
+
 # ---------------------------------------------------------------------------
 # NHM HOSTS database — clean and populate metadata
 # ---------------------------------------------------------------------------
@@ -102,9 +193,6 @@ def connect():
 def clean_hosts_db(hosts_path):
     """
     Load, clean, and save the NHM HOSTS CSV.
-    Removes lab-rearing records, drops unusable rows, normalizes family names.
-    Saves cleaned version to occurrence-data/hosts-cleaned.csv.
-    Returns cleaned DataFrame.
     """
     print(f"\n{'='*60}")
     print("CLEANING NHM HOSTS DATABASE")
@@ -113,58 +201,49 @@ def clean_hosts_db(hosts_path):
     df = pd.read_csv(hosts_path)
     print(f"  Raw records: {len(df):,}")
 
-    # Drop unused columns
     drop_cols = ['_id', 'HOSTS ID', 'Damage', 'Hostplant Subspecies/var',
                  'Insect Author', 'Insect Subspecies']
     df = df.drop(columns=[c for c in drop_cols if c in df.columns])
 
-    # Drop lab-rearing-only records — not wild host associations
     if 'Lab Rearing' in df.columns:
         before = len(df)
         df = df[df['Lab Rearing'].isna() | (df['Lab Rearing'] == '?')]
         df = df.drop(columns=['Lab Rearing'])
         print(f"  Dropped {before - len(df):,} lab-rearing-only records")
 
-    # Normalize legacy family names to APG IV
     df['Hostplant Family'] = df['Hostplant Family'].map(
         lambda x: FAMILY_NORMALIZE.get(str(x).strip(), str(x).strip())
         if pd.notna(x) else x
     )
 
-    # Drop rows with no hostplant genus (unusable)
     before = len(df)
     df = df[df['Hostplant Genus'].notna() & (df['Hostplant Genus'].str.strip() != '')]
     print(f"  Dropped {before - len(df):,} records with no hostplant genus")
 
-    # Drop pseudo-family entries
     before = len(df)
     df = df[~df['Hostplant Family'].str.lower().isin(['polyphagous', 'detritophagous'])]
     print(f"  Dropped {before - len(df):,} polyphagous/detritophagous records")
 
-    # Build full host plant name: Genus + Species
     df['host_plant_name'] = (
         df['Hostplant Genus'].fillna('').str.strip() + ' ' +
         df['Hostplant Species'].fillna('').str.strip()
     ).str.strip()
 
-    # Build full insect name: Genus + Species
     df['insect_name'] = (
         df['Insect Genus'].fillna('').str.strip() + ' ' +
         df['Insect Species'].fillna('').str.strip()
     ).str.strip()
 
-    # Rename columns for clarity
     df = df.rename(columns={
-        'Insect Family':    'insect_family',
-        'Insect Genus':     'insect_genus',
-        'Insect Species':   'insect_species',
-        'Hostplant Family': 'plant_family',
-        'Hostplant Genus':  'plant_genus',
-        'Hostplant Species':'plant_species',
-        'Location':         'location',
+        'Insect Family':     'insect_family',
+        'Insect Genus':      'insect_genus',
+        'Insect Species':    'insect_species',
+        'Hostplant Family':  'plant_family',
+        'Hostplant Genus':   'plant_genus',
+        'Hostplant Species': 'plant_species',
+        'Location':          'location',
     })
 
-    # Save cleaned version
     DATA_DIR.mkdir(exist_ok=True)
     df.to_csv(HOSTS_CLEANED_FILE, index=False)
 
@@ -178,13 +257,8 @@ def clean_hosts_db(hosts_path):
 
 
 def build_hosts_lookup(hosts_df):
-    """
-    Build dict mapping insect name (species or genus) to host plant data.
-    Species-level entries take priority over genus-level.
-    """
     lookup = {}
 
-    # Genus-level first (lower priority — overwritten by species matches below)
     for genus, group in hosts_df.groupby('insect_genus'):
         plants   = sorted(set(p for p in group['host_plant_name'].dropna() if p))
         families = sorted(set(f for f in group['plant_family'].dropna() if f))
@@ -195,7 +269,6 @@ def build_hosts_lookup(hosts_df):
             'location':            ', '.join(locs),
         }
 
-    # Species-level (higher priority — overwrites genus entries)
     for name, group in hosts_df.groupby('insect_name'):
         name = name.strip()
         if not name or ' ' not in name:
@@ -213,11 +286,6 @@ def build_hosts_lookup(hosts_df):
 
 
 def populate_host_plants(hosts_path, dry_run=False):
-    """
-    Clean the HOSTS CSV, build lookup, and populate host_plants,
-    host_plant_families, and host_plant_status columns in metadata CSV.
-    Skips rows that already have host plant data.
-    """
     hosts_df = clean_hosts_db(hosts_path)
     lookup   = build_hosts_lookup(hosts_df)
 
@@ -227,7 +295,6 @@ def populate_host_plants(hosts_path, dry_run=False):
 
     meta = read_csv_meta(METADATA_FILE)
 
-    # Add columns if missing
     for col in ['host_plants', 'host_plant_families', 'host_plant_status']:
         if col not in meta.columns:
             meta[col] = ''
@@ -242,13 +309,11 @@ def populate_host_plants(hosts_path, dry_run=False):
         if category != 'lepidoptera':
             continue
 
-        # Skip if already populated
         existing = str(row.get('host_plants', '')).strip()
         if existing and existing not in ('', 'nan'):
             print(f"  → {species_name:40s} already populated, skipping")
             continue
 
-        # Species match first, fall back to genus
         data = lookup.get(species_name) or lookup.get(species_name.split()[0])
 
         if data and data['host_plants']:
@@ -281,10 +346,7 @@ def populate_host_plants(hosts_path, dry_run=False):
 # ---------------------------------------------------------------------------
 
 def upsert_species(cur, row):
-    """
-    Insert species row if not exists. Returns the species id.
-    Updates common_name and family if already present.
-    """
+    """Insert or update species row. Returns the species id."""
     gbif_key = (
         int(row['gbif_key'])
         if pd.notna(row.get('gbif_key')) and str(row.get('gbif_key', '')).strip() not in ('', 'nan')
@@ -315,13 +377,20 @@ def upsert_species(cur, row):
 
 def ingest_lepidoptera(conn, cur, species_id, gdf, dry_run=False):
     """
-    Insert lepidoptera occurrences from a GeoDataFrame.
-    Returns count of rows inserted.
+    Insert lepidoptera occurrences. Uses gbifID as stable source_id to
+    prevent duplicate rows on re-ingest.
     """
     rows = []
     for _, feat in gdf.iterrows():
         lat = feat.geometry.y
         lng = feat.geometry.x
+
+        # Use GBIF's own occurrence ID as the stable dedup key
+        gbif_id = feat.get('gbifID') or feat.get('occurrenceID') or feat.get('id')
+        if gbif_id is None:
+            # Last resort: hash of coordinates + species_id (still better than row index)
+            gbif_id = f'{species_id}-{lat:.6f}-{lng:.6f}'
+        source_id = f'gbif-{gbif_id}'
 
         observed = feat.get('eventDate')
         if pd.notna(observed):
@@ -336,7 +405,7 @@ def ingest_lepidoptera(conn, cur, species_id, gdf, dry_run=False):
             species_id,
             observed,
             'GBIF',
-            f'geojson-{species_id}-{len(rows)}',
+            source_id,
             1,
             f'SRID=4326;POINT({lng} {lat})',
         ))
@@ -365,13 +434,20 @@ def ingest_lepidoptera(conn, cur, species_id, gdf, dry_run=False):
 
 def ingest_host_plant(conn, cur, scientific_name, gdf, dry_run=False):
     """
-    Insert host plant occurrences from a GeoDataFrame.
-    Returns count of rows inserted.
+    Insert host plant occurrences. Uses gbifID as stable source_id to
+    prevent duplicate rows on re-ingest.
     """
     rows = []
+    safe_name = scientific_name.replace(' ', '-').lower()
+
     for _, feat in gdf.iterrows():
         lat = feat.geometry.y
         lng = feat.geometry.x
+
+        gbif_id = feat.get('gbifID') or feat.get('occurrenceID') or feat.get('id')
+        if gbif_id is None:
+            gbif_id = f'{safe_name}-{lat:.6f}-{lng:.6f}'
+        source_id = f'gbif-{gbif_id}'
 
         observed = feat.get('eventDate')
         if pd.notna(observed):
@@ -386,7 +462,7 @@ def ingest_host_plant(conn, cur, scientific_name, gdf, dry_run=False):
             scientific_name,
             observed,
             'GBIF',
-            f'geojson-{scientific_name.replace(" ", "-")}-{len(rows)}',
+            source_id,
             f'SRID=4326;POINT({lng} {lat})',
         ))
 
@@ -413,7 +489,6 @@ def ingest_host_plant(conn, cur, scientific_name, gdf, dry_run=False):
 # ---------------------------------------------------------------------------
 
 def link_host_plants(cur, species_id, host_plant_names, dry_run=False):
-    """Insert rows into species_host_plants for each host plant name."""
     if dry_run:
         return
     for plant_name in host_plant_names:
@@ -463,9 +538,6 @@ def ingest_species(row, df, idx, conn, dry_run=False, delete_after=True):
     try:
         with conn.cursor() as cur:
 
-            # ----------------------------------------------------------------
-            # LEPIDOPTERA
-            # ----------------------------------------------------------------
             if category == 'lepidoptera':
                 species_id = upsert_species(cur, row)
                 conn.commit()
@@ -473,7 +545,6 @@ def ingest_species(row, df, idx, conn, dry_run=False, delete_after=True):
                 inserted = ingest_lepidoptera(conn, cur, species_id, gdf, dry_run)
                 print(f"  ✓ {species_name:40s} {inserted:>7,} occurrences → lepidoptera_occurrences")
 
-                # Link and ingest host plants
                 host_plant_names = parse_host_plants(row.get('host_plants'))
                 if host_plant_names:
                     link_host_plants(cur, species_id, host_plant_names, dry_run)
@@ -492,14 +563,11 @@ def ingest_species(row, df, idx, conn, dry_run=False, delete_after=True):
                             except Exception as e:
                                 print(f"    ✗ {plant_name}: {e}")
                         else:
-                            print(f"    ⚠ {plant_name:38s} no GeoJSON yet (run procure.py to download)")
+                            print(f"    ⚠ {plant_name:38s} no GeoJSON yet (run procure.py)")
 
                 refresh_extents(cur, species_id, dry_run)
                 conn.commit()
 
-            # ----------------------------------------------------------------
-            # HOST PLANT (standalone)
-            # ----------------------------------------------------------------
             elif category == 'host_plant':
                 inserted = ingest_host_plant(conn, cur, species_name, gdf, dry_run)
                 conn.commit()
@@ -509,7 +577,6 @@ def ingest_species(row, df, idx, conn, dry_run=False, delete_after=True):
                 print(f"  ⚠ {species_name:40s} unknown category '{category}' — skipping")
                 return False
 
-        # Success — delete file and mark metadata
         if delete_after and not dry_run:
             geojson_path.unlink()
             _mark_ingested(df, species_name)
@@ -523,7 +590,6 @@ def ingest_species(row, df, idx, conn, dry_run=False, delete_after=True):
 
 
 def _mark_ingested(df, species_name):
-    """Update status to 'ingested' in the in-memory DataFrame."""
     mask = df['species_name'] == species_name
     if mask.any():
         df.loc[mask, 'status'] = 'ingested'
@@ -542,21 +608,28 @@ def run_ingest(target_species=None, dry_run=False, delete_after=True):
 
     if 'category' not in df.columns:
         print("Error: metadata CSV missing 'category' column.")
-        print("Add a 'category' column with values: lepidoptera | host_plant")
         return
+
+    conn = connect()
+
+    # Handle #drop flags before ingesting anything
+    df = drop_flagged_species(df, conn, dry_run=dry_run)
+    if not dry_run:
+        write_csv_meta(df, METADATA_FILE)
 
     if target_species:
         mask = df['species_name'].str.lower() == target_species.lower()
         if not mask.any():
             print(f"Error: '{target_species}' not found in metadata.")
+            conn.close()
             return
         rows_to_process = df[mask]
     else:
         rows_to_process = df[df['status'] != 'ingested']
 
     if len(rows_to_process) == 0:
-        print("\n✓ Nothing to ingest — all species already marked as ingested.")
-        print("  Use --species NAME to re-ingest a specific species.")
+        print("\n✓ Nothing to ingest — all species already ingested.")
+        conn.close()
         return
 
     print(f"\n{'='*60}")
@@ -565,7 +638,6 @@ def run_ingest(target_species=None, dry_run=False, delete_after=True):
         print("DRY RUN — no data will be written or deleted")
     print(f"{'='*60}\n")
 
-    conn = connect()
     success = 0
     skipped = 0
 
@@ -573,7 +645,6 @@ def run_ingest(target_species=None, dry_run=False, delete_after=True):
         for idx, row in rows_to_process.iterrows():
             category = str(row.get('category', '')).strip().lower()
 
-            # Skip standalone host_plant rows already referenced by a lepidoptera row
             if category == 'host_plant' and 'host_plants' in df.columns:
                 referenced = df['host_plants'].dropna().apply(
                     lambda x: row['species_name'] in [s.strip() for s in str(x).split(',')]
@@ -609,50 +680,37 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Environment variables:
-  DB_APP_PASSWORD  (required for ingest)
+  DB_APP_PASSWORD  (required)
   DB_HOST          (default: localhost)
   DB_PORT          (default: 5432)
   DB_NAME          (default: lepidoptera_data)
   DB_USER          (default: lepidoptera_app)
 
 Examples:
-  python ingest.py                                  # ingest all pending species
+  python ingest.py                                  # ingest all pending + process #drop flags
   python ingest.py --dry-run                        # preview without writing
   python ingest.py --species "Morpho"               # ingest one species
   python ingest.py --no-delete                      # ingest but keep GeoJSON files
-  python ingest.py --populate-hosts resource.csv --hosts-only   # populate only, no ingest
-  python ingest.py --populate-hosts resource.csv                # populate then ingest
+  python ingest.py --populate-hosts resource.csv --hosts-only
+  python ingest.py --populate-hosts resource.csv
         """
     )
-    parser.add_argument('--dry-run',
-                        action='store_true',
-                        help='Preview without writing to DB or deleting files')
-    parser.add_argument('--no-delete',
-                        action='store_true',
-                        help='Ingest but keep GeoJSON files on disk')
-    parser.add_argument('--species',
-                        type=str, default=None,
-                        help='Ingest a single species by name')
-    parser.add_argument('--populate-hosts',
-                        type=Path, nargs='?', const=HOSTS_RAW_FILE, default=None,
-                        metavar='HOSTS_CSV',
-                        help=f'Path to NHM HOSTS CSV (default: {DATA_DIR}/host-plant-info.csv)')
-    parser.add_argument('--hosts-only',
-                        action='store_true',
-                        help='Run --populate-hosts and exit without ingesting')
+    parser.add_argument('--dry-run',    action='store_true')
+    parser.add_argument('--no-delete',  action='store_true')
+    parser.add_argument('--species',    type=str, default=None)
+    parser.add_argument('--populate-hosts', type=Path, nargs='?',
+                        const=HOSTS_RAW_FILE, default=None, metavar='HOSTS_CSV')
+    parser.add_argument('--hosts-only', action='store_true')
     args = parser.parse_args()
 
-    # Step 1 — optionally populate host plants from HOSTS CSV
     if args.populate_hosts:
-        hosts_path = args.populate_hosts
-        if not hosts_path.exists():
-            print(f"Error: HOSTS CSV not found at {hosts_path}")
+        if not args.populate_hosts.exists():
+            print(f"Error: HOSTS CSV not found at {args.populate_hosts}")
             return
-        populate_host_plants(hosts_path, dry_run=args.dry_run)
+        populate_host_plants(args.populate_hosts, dry_run=args.dry_run)
         if args.hosts_only:
             return
 
-    # Step 2 — ingest occurrence data into DB
     if not args.hosts_only:
         if 'DB_APP_PASSWORD' not in os.environ:
             print("Error: DB_APP_PASSWORD environment variable not set.")

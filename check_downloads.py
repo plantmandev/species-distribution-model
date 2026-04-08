@@ -17,6 +17,18 @@ def read_csv_meta(path):
     return pd.read_csv(path, dtype={'gbif_key': str})
 
 
+def is_empty(value):
+    """Return True if a metadata field is missing, NaN, or blank."""
+    if value is None:
+        return True
+    try:
+        if pd.isna(value):
+            return True
+    except (TypeError, ValueError):
+        pass
+    return str(value).strip() in ('', 'nan')
+
+
 def fetch_gbif_expected(species_name):
     """Query GBIF for the current total record count for a species."""
     try:
@@ -51,7 +63,7 @@ def get_actual_count(species_name):
 
 def safe_int(value):
     """Convert a metadata field to int, returning 0 for NaN/None."""
-    if pd.isna(value) if value is not None else True:
+    if is_empty(value):
         return 0
     try:
         return int(value)
@@ -78,32 +90,32 @@ def classify(actual, expected):
 
 def populate_gbif_keys():
     """
-    Populate gbif_key for rows where it is missing using GBIF backbone taxonomy.
-    Skips rows that already have a key. Leaves blank if no match is found.
+    Populate gbif_key only for rows where it is missing.
+    Skips rows that already have a key.
     """
     df = read_csv_meta(METADATA_FILE)
 
     if 'gbif_key' not in df.columns:
         df['gbif_key'] = ''
 
+    to_fill = [(idx, row) for idx, row in df.iterrows() if is_empty(row.get('gbif_key'))]
+
+    if not to_fill:
+        print("  ✓ All GBIF keys present, skipping.\n")
+        return
+
     updated = 0
 
     print(f"\n{'='*60}")
-    print("POPULATING GBIF KEYS FROM BACKBONE TAXONOMY")
+    print(f"POPULATING GBIF KEYS ({len(to_fill)} missing)")
     print(f"{'='*60}\n")
 
-    for idx, row in df.iterrows():
-        existing = str(row.get('gbif_key', '')).strip()
-        if existing and existing != 'nan':
-            continue
-
+    for idx, row in to_fill:
         species_name = row['species_name']
 
         try:
             result = sp.name_backbone(species_name)
 
-            # New GBIF API returns nested structure: result['usage']['key']
-            # Fall back to legacy flat fields for older pygbif versions
             key = (
                 (result.get('usage') or {}).get('key') or
                 result.get('usageKey') or
@@ -134,24 +146,29 @@ def populate_gbif_keys():
 
 def populate_common_names():
     """
-    Populate common_name for all rows using GBIF vernacular names.
-    Always overwrites so bad names can be corrected by re-running.
-    Leaves the field blank if no vernacular name is found.
+    Populate common_name only for rows where it is missing.
+    Skips rows that already have a name.
     """
     df = read_csv_meta(METADATA_FILE)
 
     if 'common_name' not in df.columns:
         df['common_name'] = ''
 
+    to_fill = [(idx, row) for idx, row in df.iterrows() if is_empty(row.get('common_name'))]
+
+    if not to_fill:
+        print("  ✓ All common names present, skipping.\n")
+        return
+
     updated = 0
 
     print(f"\n{'='*60}")
-    print("POPULATING COMMON NAMES FROM GBIF")
+    print(f"POPULATING COMMON NAMES ({len(to_fill)} missing)")
     print(f"{'='*60}\n")
 
-    for idx, row in df.iterrows():
+    for idx, row in to_fill:
         gbif_key = str(row.get('gbif_key', '')).strip()
-        if not gbif_key or gbif_key == 'nan':
+        if is_empty(gbif_key):
             print(f"  ⚠ No gbif_key for {row['species_name']}, skipping")
             continue
 
@@ -185,7 +202,8 @@ def populate_common_names():
 def run_check():
     """
     Check all species in metadata against local GeoJSON files.
-    Refreshes expected counts from GBIF and marks incomplete species as pending.
+    Only fetches expected_obs from GBIF if it is missing.
+    Marks incomplete/missing species as pending for procure.py.
     """
     df = read_csv_meta(METADATA_FILE)
 
@@ -220,10 +238,14 @@ def run_check():
             df.at[idx, 'status'] = 'pending'
             continue
 
-        new_expected = fetch_gbif_expected(species_name)
-        expected = new_expected if new_expected is not None else safe_int(row.get('expected_obs'))
-        df.at[idx, 'expected_obs'] = expected
-        time.sleep(0.2)
+        # Only fetch expected count from GBIF if not already recorded
+        if is_empty(row.get('expected_obs')):
+            new_expected = fetch_gbif_expected(species_name)
+            expected = new_expected if new_expected is not None else 0
+            df.at[idx, 'expected_obs'] = expected
+            time.sleep(0.2)
+        else:
+            expected = safe_int(row.get('expected_obs'))
 
         status, pct = classify(actual, expected)
 
