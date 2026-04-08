@@ -6,4 +6,5 @@
 /land-cover-data
 /visualization
 /testupdate.py
-update.py
+update.pyoccurrence-data/*.csv
+occurrence-data/*.csv
