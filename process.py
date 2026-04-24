@@ -7,11 +7,11 @@ from qgis.core import (
     QgsWkbTypes
 )
 
-DB_HOST    = "10.11.11.58"
-DB_PORT    = "5432"
-DB_NAME    = "lepidoptera_data"
-DB_USER    = "lepidoptera_demo"
-DB_PASS    = "demo"
+DB_HOST    = os.environ.get('DB_HOST', '10.11.11.58')
+DB_PORT    = os.environ.get('DB_PORT', '5432')
+DB_NAME    = os.environ.get('DB_NAME', 'lepidoptera_data')
+DB_USER    = os.environ.get('DB_USER', 'lepidoptera_demo')
+DB_PASS    = os.environ.get('DB_PASS', '')
 DATE_FIELD = "observed_date"
 
 
@@ -79,7 +79,7 @@ else:
         sql = f"""
             SELECT id, observed_date, source, data_tier, geom
             FROM   lepidoptera_occurrences
-            WHERE  species_id = {species_id}
+            WHERE  species_id = {int(species_id)}
               AND  data_tier  = 1
         """
 
@@ -121,10 +121,11 @@ failed  = 0
 for feature in host_list.getFeatures():
     plant_name = feature["scientific_name"]
 
+    safe_plant = plant_name.replace("'", "''")
     sql = f"""
         SELECT id, scientific_name, observed_date, geom
         FROM   host_plant_occurrences
-        WHERE  scientific_name = '{plant_name}'
+        WHERE  scientific_name = '{safe_plant}'
     """
 
     layer = add_temporal_layer(make_uri(plant_name, sql), plant_name)

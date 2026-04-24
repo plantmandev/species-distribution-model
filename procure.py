@@ -4,12 +4,15 @@ import pandas as pd
 import geopandas as gpd
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import date
 import time
 import argparse
 from tqdm import tqdm
 import warnings
 
 warnings.filterwarnings('ignore', category=FutureWarning)
+
+END_YEAR = date.today().year
 
 DATA_DIR      = Path('occurrence-data')
 METADATA_FILE = DATA_DIR / 'species-metadata.csv'
@@ -615,7 +618,7 @@ def download_species(species, year_from, countries=None, convert=True):
         print(f"[{species}] Found {len(species_in_genus)} species in genus")
 
         downloaded_years, existing_gdf = get_downloaded_years(species)
-        missing_years = sorted(set(range(year_from, 2026)) - downloaded_years)
+        missing_years = sorted(set(range(year_from, END_YEAR + 1)) - downloaded_years)
 
         if not missing_years:
             print(f"[{species}] ✓ All years present, nothing to download")
@@ -628,7 +631,7 @@ def download_species(species, year_from, countries=None, convert=True):
         for sp in species_in_genus:
             try:
                 p = {'scientificName': sp, 'hasCoordinate': True,
-                     'year': f'{year_from},2025', 'limit': 1}
+                     'year': f'{year_from},{END_YEAR}', 'limit': 1}
                 if countries:
                     p['country'] = countries
                 total_expected += occ.search(**p).get('count', 0)
@@ -698,7 +701,7 @@ def download_species(species, year_from, countries=None, convert=True):
     # Species-level path — resume-aware
     # -----------------------------------------------------------------------
     downloaded_years, existing_gdf = get_downloaded_years(species)
-    missing_years = sorted(set(range(year_from, 2026)) - downloaded_years)
+    missing_years = sorted(set(range(year_from, END_YEAR + 1)) - downloaded_years)
 
     if not missing_years:
         print(f"[{species}] ✓ All years present, nothing to download")
@@ -757,7 +760,7 @@ def download_species(species, year_from, countries=None, convert=True):
                 try:
                     full_expected = occ.search(
                         scientificName=species, hasCoordinate=True,
-                        year=f'{year_from},2025', limit=1
+                        year=f'{year_from},{END_YEAR}', limit=1
                     ).get('count', 0)
                 except Exception:
                     full_expected = 0
@@ -841,7 +844,7 @@ def run_batch(year_from, countries, workers, force=False, skip_conversion=False)
     country_display = ', '.join(countries) if countries else 'worldwide'
     print(f"\n{'='*60}")
     print(f"Species: {len(pending)} to download | {len(skipped)} complete")
-    print(f"Settings: {year_from}-2025 | {country_display} | {workers} workers")
+    print(f"Settings: {year_from}-{END_YEAR} | {country_display} | {workers} workers")
     print(f"{'='*60}\n")
 
     total_records = 0

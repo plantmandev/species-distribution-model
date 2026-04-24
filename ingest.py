@@ -368,7 +368,10 @@ def upsert_species(cur, row):
         row.get('family')      if pd.notna(row.get('family'))      else None,
         gbif_key,
     ))
-    return cur.fetchone()[0]
+    result = cur.fetchone()
+    if result is None:
+        raise RuntimeError(f"species upsert returned no id for '{row['species_name']}'")
+    return result[0]
 
 
 # ---------------------------------------------------------------------------
@@ -561,6 +564,7 @@ def ingest_species(row, df, idx, conn, dry_run=False, delete_after=True):
                                     plant_path.unlink()
                                     _mark_ingested(df, plant_name)
                             except Exception as e:
+                                conn.rollback()
                                 print(f"    ✗ {plant_name}: {e}")
                         else:
                             print(f"    ⚠ {plant_name:38s} no GeoJSON yet (run procure.py)")
