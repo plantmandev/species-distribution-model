@@ -4,8 +4,7 @@ sdm.py - Species Distribution Model
 
 Produces a habitat-suitability GeoTIFF (0–1) for a target species using:
   - Occurrence points from PostGIS (with GeoJSON fallback)
-  - TerraClimate climate variables (tmax, tmin, precipitation)
-  - NALCMS 2020 land cover raster
+  - BioClim variables averaged 2015-2024 (bio01/04/05/06/12/15/18/19)
 
 Usage:
     python sdm.py "danaus plexippus"
@@ -23,36 +22,39 @@ import os
 import sys
 from pathlib import Path
 
+from dotenv import load_dotenv
+load_dotenv()
+
 import numpy as np
 import pandas as pd
 import psycopg2
 import rasterio
-import xarray as xr
 from rasterio.crs import CRS
 from rasterio.enums import Resampling
 from rasterio.transform import from_origin
 from rasterio.warp import reproject
-from scipy.interpolate import RegularGridInterpolator
+from scipy.stats import gaussian_kde
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import roc_auc_score
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
 
-CLIMATE_DIR = Path("climate-data")
-LAND_COVER_PATH = Path("land-cover-data/data/NA_NALCMS_landcover_2020v2_30m.tif")
+BIOCLIM_DIR    = Path("bioclim-data")
 OCCURRENCE_DIR = Path("occurrence-data")
-OUTPUT_DIR = Path("sdm-output")
+OUTPUT_DIR     = Path("sdm-output")
 
-# TerraClimate subdirectory names keyed by variable
-CLIMATE_SUBDIRS = {
-    "tmax": "Maximum Temperature",
-    "tmin": "Minimum Temperature",
-    "ppt":  "Precipitation",
+BIOCLIM_VARS = {
+    "bio01": "Annual Mean Temperature",
+    "bio04": "Temperature Seasonality",
+    "bio05": "Max Temp of Warmest Month",
+    "bio06": "Min Temp of Coldest Month",
+    "bio12": "Annual Precipitation",
+    "bio15": "Precipitation Seasonality",
+    "bio18": "Precipitation of Warmest Quarter",
+    "bio19": "Precipitation of Coldest Quarter",
 }
 
-# Study area: North America + Central America
-DEFAULT_EXTENT = (-180.0, 7.0, -50.0, 84.0)   # west, south, east, north
-DEFAULT_RESOLUTION = 0.04                        # degrees  ≈ 4 km
+DEFAULT_RESOLUTION = 0.1    # degrees ≈ 11 km (matches WorldClim global coverage)
 
 TARGET_CRS = CRS.from_epsg(4326)
 
@@ -86,6 +88,7 @@ def connect_db() -> psycopg2.extensions.connection:
 
 
 def get_occurrences_db(species_name: str) -> pd.DataFrame:
+    species_name = species_name.replace("-", " ")
     conn = connect_db()
     try:
         sql = """
@@ -135,19 +138,22 @@ def get_target_group_absences(species_name: str, n: int) -> pd.DataFrame | None:
     Sample background points from other lepidoptera in the DB.
     Returns None if the DB is unavailable or contains too few records.
     """
+    species_name = species_name.replace("-", " ")
     try:
         conn = connect_db()
-        sql = """
-            SELECT ST_X(lo.geom) AS lon, ST_Y(lo.geom) AS lat
-            FROM lepidoptera_occurrences lo
-            JOIN species s ON lo.species_id = s.id
-            WHERE LOWER(s.scientific_name) != LOWER(%s)
-              AND lo.geom IS NOT NULL
-            ORDER BY RANDOM()
-            LIMIT %s
-        """
-        df = pd.read_sql(sql, conn, params=[species_name, n * 3])
-        conn.close()
+        try:
+            sql = """
+                SELECT ST_X(lo.geom) AS lon, ST_Y(lo.geom) AS lat
+                FROM lepidoptera_occurrences lo
+                JOIN species s ON lo.species_id = s.id
+                WHERE LOWER(s.scientific_name) != LOWER(%s)
+                  AND lo.geom IS NOT NULL
+                ORDER BY RANDOM()
+                LIMIT %s
+            """
+            df = pd.read_sql(sql, conn, params=[species_name, n * 3])
+        finally:
+            conn.close()
         if len(df) >= n // 2:
             return df.sample(n=min(n, len(df)), random_state=42).reset_index(drop=True)
     except Exception:
@@ -169,188 +175,48 @@ def build_target_grid(extent: tuple, resolution: float) -> tuple:
 
 # ── Climate ────────────────────────────────────────────────────────────────────
 
-def lat_coord(da: xr.DataArray) -> str:
-    return "lat" if "lat" in da.coords else "latitude"
+def bioclim_extent() -> tuple[float, float, float, float]:
+    """Return (west, south, east, north) of the BioClim data files."""
+    path = BIOCLIM_DIR / f"{next(iter(BIOCLIM_VARS))}_mean.tif"
+    if not path.exists():
+        raise FileNotFoundError(f"BioClim file not found: {path}. Run download_bioclim.py first.")
+    with rasterio.open(path) as src:
+        b = src.bounds
+    return b.left, b.bottom, b.right, b.top
 
 
-def lon_coord(da: xr.DataArray) -> str:
-    return "lon" if "lon" in da.coords else "longitude"
-
-
-def compute_climate_features_streamed(
-    lat_mask: np.ndarray,
-    lon_mask: np.ndarray,
-) -> tuple[dict[str, np.ndarray], np.ndarray, np.ndarray]:
-    """
-    Derive 9 bioclimate-style predictor grids from monthly TerraClimate data,
-    processing one year at a time to stay within memory limits.
-
-    Peak memory: ~4 × (12 × H_sub × W_sub × float32) ≈ 1–2 GB.
-    Returns (feature_dict, sub_lats, sub_lons).
-    """
-    tmax_dir = CLIMATE_DIR / CLIMATE_SUBDIRS["tmax"]
-    tmin_dir = CLIMATE_DIR / CLIMATE_SUBDIRS["tmin"]
-    ppt_dir  = CLIMATE_DIR / CLIMATE_SUBDIRS["ppt"]
-
-    years = sorted({f.stem.split("_")[-1] for f in tmax_dir.glob("TerraClimate_tmax_*.nc")})
-    if not years:
-        raise FileNotFoundError(f"No TerraClimate tmax files found in {tmax_dir}")
-
-    # acc[var] accumulates: sum, sum_sq, count, min, max over all months
-    acc: dict[str, dict] = {}
-    sub_lats: np.ndarray | None = None
-    sub_lons: np.ndarray | None = None
-
-    for year in years:
-        var_files = {
-            "tmax": tmax_dir / f"TerraClimate_tmax_{year}.nc",
-            "tmin": tmin_dir / f"TerraClimate_tmin_{year}.nc",
-            "ppt":  ppt_dir  / f"TerraClimate_ppt_{year}.nc",
-        }
-
-        subs: dict[str, np.ndarray] = {}
-        for var, fpath in var_files.items():
-            with xr.open_dataset(fpath, decode_times=True, mask_and_scale=True) as ds:
-                da = ds[var]
-                if sub_lats is None:
-                    sub_lats = da.coords[lat_coord(da)].values[lat_mask]
-                    sub_lons = da.coords[lon_coord(da)].values[lon_mask]
-                subs[var] = da.isel({
-                    lat_coord(da): lat_mask,
-                    lon_coord(da): lon_mask,
-                }).values.astype(np.float32)  # (12, H_sub, W_sub)
-
-        subs["tmean"] = (subs["tmax"] + subs["tmin"]) / 2.0
-
-        for var, data in subs.items():
-            valid = np.isfinite(data)
-            b = {
-                "sum":    np.nansum(data,    axis=0),
-                "sum_sq": np.nansum(data**2, axis=0),
-                "count":  valid.sum(axis=0).astype(np.float32),
-                "min":    np.where(valid.any(axis=0), np.nanmin(data, axis=0),  np.inf),
-                "max":    np.where(valid.any(axis=0), np.nanmax(data, axis=0), -np.inf),
-            }
-            if var not in acc:
-                acc[var] = b
-            else:
-                acc[var]["sum"]    += b["sum"]
-                acc[var]["sum_sq"] += b["sum_sq"]
-                acc[var]["count"]  += b["count"]
-                acc[var]["min"]     = np.fmin(acc[var]["min"], b["min"])
-                acc[var]["max"]     = np.fmax(acc[var]["max"], b["max"])
-
-        log.info(f"  Processed year {year}")
-
-    def finalize(a: dict) -> dict[str, np.ndarray]:
-        with np.errstate(invalid="ignore", divide="ignore"):
-            cnt  = np.where(a["count"] > 0, a["count"], np.nan)
-            mean = (a["sum"] / cnt).astype(np.float32)
-            std  = np.sqrt(np.maximum(a["sum_sq"] / cnt - mean**2, 0)).astype(np.float32)
-            mn   = np.where(np.isfinite(a["min"]), a["min"], np.nan).astype(np.float32)
-            mx   = np.where(np.isfinite(a["max"]), a["max"], np.nan).astype(np.float32)
-        return {"mean": mean, "std": std, "min": mn, "max": mx}
-
-    s = {v: finalize(acc[v]) for v in acc}
-
-    with np.errstate(invalid="ignore", divide="ignore"):
-        ppt_cv = np.where(
-            s["ppt"]["mean"] > 0, s["ppt"]["std"] / s["ppt"]["mean"], 0.0
-        ).astype(np.float32)
-
-    features: dict[str, np.ndarray] = {
-        "mean_tmax":          s["tmax"]["mean"],
-        "mean_tmin":          s["tmin"]["mean"],
-        "mean_temp":          s["tmean"]["mean"],
-        "temp_range":         s["tmax"]["mean"] - s["tmin"]["mean"],
-        "temp_seasonality":   s["tmean"]["std"],
-        "annual_precip":      s["ppt"]["mean"] * 12,
-        "precip_driest":      s["ppt"]["min"],
-        "precip_wettest":     s["ppt"]["max"],
-        "precip_seasonality": ppt_cv,
-    }
-
-    return features, sub_lats, sub_lons
-
-
-def align_to_grid(
-    arr: np.ndarray,
-    src_lats: np.ndarray,
-    src_lons: np.ndarray,
-    tgt_lats: np.ndarray,
-    tgt_lons: np.ndarray,
-) -> np.ndarray:
-    """Nearest-neighbour regrid from TerraClimate (~0.042°) to target grid."""
-    # Ensure lats ascending for interpolator
-    if src_lats[0] > src_lats[-1]:
-        src_lats = src_lats[::-1]
-        arr = arr[::-1, :]
-
-    interp = RegularGridInterpolator(
-        (src_lats, src_lons), arr,
-        method="nearest",
-        bounds_error=False,
-        fill_value=np.nan,
-    )
-    lon_grid, lat_grid = np.meshgrid(tgt_lons, tgt_lats)
-    pts = np.column_stack([lat_grid.ravel(), lon_grid.ravel()])
-    return interp(pts).reshape(len(tgt_lats), len(tgt_lons)).astype(np.float32)
-
-# ── Land cover ─────────────────────────────────────────────────────────────────
-
-def resample_land_cover(
+def load_bioclim_features(
     target_transform: rasterio.Affine,
     target_shape: tuple[int, int],
     target_crs: CRS,
-) -> np.ndarray:
-    """
-    Warp NALCMS 30m land cover to the target grid using mode resampling.
-    Streams the 3.2 GB source in blocks — memory usage stays manageable.
-    """
-    log.info("Warping land cover (this may take a moment)...")
-    dest = np.zeros(target_shape, dtype=np.uint8)
-    with rasterio.open(LAND_COVER_PATH) as src:
-        reproject(
-            source=rasterio.band(src, 1),
-            destination=dest,
-            src_transform=src.transform,
-            src_crs=src.crs,
-            dst_transform=target_transform,
-            dst_crs=target_crs,
-            resampling=Resampling.mode,
-        )
-    dest = dest.astype(np.float32)
-    dest[dest == 0] = np.nan    # NALCMS nodata = 0
-    return dest
+) -> dict[str, np.ndarray]:
+    """Reproject each BioClim mean TIF to the target grid and return as a dict."""
+    features: dict[str, np.ndarray] = {}
+    for var in BIOCLIM_VARS:
+        path = BIOCLIM_DIR / f"{var}_mean.tif"
+        if not path.exists():
+            raise FileNotFoundError(
+                f"BioClim file not found: {path}. Run download_bioclim.py first."
+            )
+        dest = np.full(target_shape, np.nan, dtype=np.float32)
+        with rasterio.open(path) as src:
+            reproject(
+                source=rasterio.band(src, 1),
+                destination=dest,
+                src_transform=src.transform,
+                src_crs=src.crs,
+                dst_transform=target_transform,
+                dst_crs=target_crs,
+                resampling=Resampling.bilinear,
+                src_nodata=src.nodata,
+                dst_nodata=np.nan,
+            )
+        features[var] = dest
+        log.info(f"  Loaded {var} ({BIOCLIM_VARS[var]})")
+    return features
 
-# ── Pseudo-absences ────────────────────────────────────────────────────────────
 
-def generate_random_absences(
-    extent: tuple,
-    n: int,
-    presence_df: pd.DataFrame,
-    rng: np.random.Generator,
-    min_dist_deg: float = 1.0,
-) -> pd.DataFrame:
-    """Random background points at least min_dist_deg away from any presence."""
-    west, south, east, north = extent
-    pres_lon = presence_df["lon"].values
-    pres_lat = presence_df["lat"].values
-    pts: list[dict] = []
-    max_attempts = n * 30
-    attempts = 0
-    while len(pts) < n and attempts < max_attempts:
-        lon = rng.uniform(west, east)
-        lat = rng.uniform(south, north)
-        if not (
-            (np.abs(pres_lon - lon) < min_dist_deg) &
-            (np.abs(pres_lat - lat) < min_dist_deg)
-        ).any():
-            pts.append({"lon": lon, "lat": lat})
-        attempts += 1
-    if len(pts) < n // 2:
-        log.warning(f"Only generated {len(pts)} pseudo-absences (requested {n})")
-    return pd.DataFrame(pts)
+# ── Land cover ─────────────────────────────────────────────────────────────────
 
 # ── Raster sampling ────────────────────────────────────────────────────────────
 
@@ -420,6 +286,89 @@ def save_suitability_raster(
         )
     log.info(f"Saved → {path}")
 
+def save_preview_png(
+    suitability: np.ndarray,
+    presence_df: pd.DataFrame,
+    extent: tuple,
+    species_name: str,
+    path: Path,
+) -> None:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    w, s, e, n = extent
+    height, width = suitability.shape
+
+    # Coordinate arrays matching the suitability grid
+    lons = np.linspace(w, e, width)
+    lats = np.linspace(n, s, height)   # descending (origin="upper")
+    lon_grid, lat_grid = np.meshgrid(lons, lats)
+
+    fig, ax = plt.subplots(figsize=(14, 8))
+
+    # ── Potential habitat heatmap ─────────────────────────────────────────────
+    im = ax.imshow(
+        suitability,
+        origin="upper",
+        extent=[w, e, s, n],
+        cmap="YlOrRd",
+        vmin=0, vmax=1,
+        interpolation="bilinear",
+    )
+
+    # ── Predicted range boundary (suitability = 0.5 contour) ─────────────────
+    suit_clean = np.where(np.isfinite(suitability), suitability, 0.0)
+    ax.contour(
+        lon_grid, lat_grid, suit_clean,
+        levels=[0.5],
+        colors=["#1a1a2e"],
+        linewidths=1.2,
+        linestyles="solid",
+    )
+    # Invisible proxy for legend
+    ax.plot([], [], color="#1a1a2e", linewidth=1.2, linestyle="solid",
+            label="Predicted range boundary (p = 0.5)")
+
+    # ── Actual observed range (KDE contour) ───────────────────────────────────
+    pts = presence_df[["lon", "lat"]].dropna()
+    sample = pts if len(pts) <= 10_000 else pts.sample(10_000, random_state=42)
+    kde = gaussian_kde(sample[["lon", "lat"]].values.T, bw_method=0.08)
+
+    # Find density threshold enclosing 90% of occurrences
+    occ_densities = kde(pts[["lon", "lat"]].values.T)
+    threshold = np.percentile(occ_densities, 10)
+
+    # Evaluate KDE on a coarse grid (1° steps) then let matplotlib interpolate the contour
+    coarse_lons = np.arange(w, e, 1.0)
+    coarse_lats = np.arange(n, s, -1.0)
+    clon_grid, clat_grid = np.meshgrid(coarse_lons, coarse_lats)
+    kde_vals = kde(np.vstack([clon_grid.ravel(), clat_grid.ravel()])).reshape(clat_grid.shape)
+    ax.contour(
+        clon_grid, clat_grid, kde_vals,
+        levels=[threshold],
+        colors=["#00b4d8"],
+        linewidths=1.4,
+        linestyles="dashed",
+    )
+    ax.plot([], [], color="#00b4d8", linewidth=1.4, linestyle="dashed",
+            label="Observed range (90% occurrence density)")
+
+    # ── Labels & legend ───────────────────────────────────────────────────────
+    cbar = fig.colorbar(im, ax=ax, fraction=0.03, pad=0.02)
+    cbar.set_label("Habitat suitability (potential)")
+    ax.set_title(f"{species_name.replace('-', ' ').title()} — Potential vs. Realized Habitat",
+                 fontsize=13, fontweight="bold")
+    ax.set_xlabel("Longitude")
+    ax.set_ylabel("Latitude")
+    ax.legend(loc="lower right", framealpha=0.85, fontsize=9)
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(path, dpi=180, bbox_inches="tight")
+    plt.close(fig)
+    log.info(f"Preview saved → {path}")
+
+
 # ── CLI ────────────────────────────────────────────────────────────────────────
 
 def parse_args() -> argparse.Namespace:
@@ -429,8 +378,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("species", help="Scientific name, e.g. 'danaus plexippus'")
     p.add_argument(
         "--extent", nargs=4, type=float, metavar=("W", "S", "E", "N"),
-        default=list(DEFAULT_EXTENT),
-        help="Study extent in WGS84 decimal degrees (default: North America)",
+        default=None,
+        help="Study extent in WGS84 decimal degrees (default: derived from BioClim data)",
     )
     p.add_argument(
         "--resolution", type=float, default=DEFAULT_RESOLUTION,
@@ -450,6 +399,10 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--output-dir", type=Path, default=OUTPUT_DIR)
+    p.add_argument(
+        "--preview", action="store_true",
+        help="Save a PNG preview with occurrence points overlaid instead of writing the TIFF",
+    )
     return p.parse_args()
 
 # ── Main ───────────────────────────────────────────────────────────────────────
@@ -459,8 +412,9 @@ def main() -> None:
     args = parse_args()
     _db_url = args.db_url   # may be None; connect_db() falls back to NEON_CONN / env vars
     rng = np.random.default_rng(args.seed)
-    extent: tuple = tuple(args.extent)
+    extent: tuple = tuple(args.extent) if args.extent else bioclim_extent()
     west, south, east, north = extent
+    log.info(f"Study extent: W={west} S={south} E={east} N={north}")
 
     # 1 ── Occurrence data ─────────────────────────────────────────────────────
     log.info(f"Species: {args.species}")
@@ -482,39 +436,27 @@ def main() -> None:
     log.info(f"Grid: {height} rows × {width} cols at {args.resolution}° resolution")
 
     # 3 ── Climate features ────────────────────────────────────────────────────
-    # Read the coordinate grid from the first tmax file (metadata only, no data loaded)
-    log.info("Loading climate data...")
-    _tmax_files = sorted((CLIMATE_DIR / CLIMATE_SUBDIRS["tmax"]).glob("TerraClimate_tmax_*.nc"))
-    if not _tmax_files:
-        sys.exit(f"No TerraClimate tmax files found in {CLIMATE_DIR / CLIMATE_SUBDIRS['tmax']}")
-    with xr.open_dataset(_tmax_files[0], mask_and_scale=False) as _ds:
-        _da = _ds["tmax"]
-        _src_lats = _da.coords[lat_coord(_da)].values
-        _src_lons = _da.coords[lon_coord(_da)].values
+    log.info("Loading BioClim features...")
+    climate_grids = load_bioclim_features(transform, shape, TARGET_CRS)
 
-    lat_mask = (_src_lats >= south - 2) & (_src_lats <= north + 2)
-    lon_mask = (_src_lons >= west  - 2) & (_src_lons <= east  + 2)
-
-    raw_features, sub_lats, sub_lons = compute_climate_features_streamed(lat_mask, lon_mask)
-
-    log.info("Aligning climate features to target grid...")
-    climate_grids: dict[str, np.ndarray] = {}
-    for name, arr in raw_features.items():
-        climate_grids[name] = align_to_grid(arr, sub_lats, sub_lons, tgt_lats, tgt_lons)
-
-    # 4 ── Land cover ──────────────────────────────────────────────────────────
-    land_cover = resample_land_cover(transform, shape, TARGET_CRS)
-
-    # 5 ── Predictor stack ─────────────────────────────────────────────────────
-    feature_names = list(climate_grids.keys()) + ["land_cover"]
-    predictor_stack = np.stack(
-        [*climate_grids.values(), land_cover], axis=0
-    )  # (n_features, H, W)
+    # 4 ── Predictor stack ─────────────────────────────────────────────────────
+    feature_names = list(climate_grids.keys())
+    predictor_stack = np.stack(list(climate_grids.values()), axis=0)  # (n_features, H, W)
 
     valid_mask = np.all(np.isfinite(predictor_stack), axis=0)
     log.info(f"Valid pixels: {valid_mask.sum():,} / {valid_mask.size:,}")
 
-    # 6 ── Pseudo-absences ─────────────────────────────────────────────────────
+    # 5 ── Clip presences to valid pixels ─────────────────────────────────────
+    pres_lat_idx = np.abs(tgt_lats[:, None] - presence_df["lat"].values[None, :]).argmin(axis=0)
+    pres_lon_idx = np.abs(tgt_lons[:, None] - presence_df["lon"].values[None, :]).argmin(axis=0)
+    in_valid = valid_mask[pres_lat_idx, pres_lon_idx]
+    presence_df = presence_df[in_valid].reset_index(drop=True)
+    log.info(f"{len(presence_df):,} presence points within valid BioClim coverage")
+
+    if len(presence_df) < 10:
+        sys.exit("Too few presence points within BioClim coverage (<10) — aborting.")
+
+    # 6 ── Pseudo-absences sampled from valid pixels ───────────────────────────
     if args.target_group:
         absence_df = get_target_group_absences(args.species, args.n_absences)
         if absence_df is not None:
@@ -524,10 +466,13 @@ def main() -> None:
             absence_df = None
 
     if not args.target_group or absence_df is None:
-        absence_df = generate_random_absences(extent, args.n_absences, presence_df, rng)
-        log.info(f"Generated {len(absence_df):,} random pseudo-absence points")
+        valid_indices = np.argwhere(valid_mask)
+        chosen = rng.choice(len(valid_indices), size=min(args.n_absences, len(valid_indices)), replace=False)
+        abs_rows, abs_cols = valid_indices[chosen, 0], valid_indices[chosen, 1]
+        absence_df = pd.DataFrame({"lon": tgt_lons[abs_cols], "lat": tgt_lats[abs_rows]})
+        log.info(f"Generated {len(absence_df):,} pseudo-absence points from valid pixels")
 
-    # 7 ── Training data ───────────────────────────────────────────────────────
+    # 7 ── Training data ──────────────────────────────────────────────────────
     X_pres = sample_raster(predictor_stack, tgt_lons, tgt_lats,
                            presence_df["lon"].values, presence_df["lat"].values)
     X_abs  = sample_raster(predictor_stack, tgt_lons, tgt_lats,
@@ -560,9 +505,13 @@ def main() -> None:
     )
 
     # 10 ── Save output ────────────────────────────────────────────────────────
-    slug = args.species.replace(" ", "_").lower()
-    out_path = args.output_dir / f"{slug}_suitability.tif"
-    save_suitability_raster(suitability, transform, TARGET_CRS, out_path)
+    slug = args.species.replace("-", " ").replace(" ", "_").lower()
+    if args.preview:
+        out_path = args.output_dir / f"{slug}_preview.png"
+        save_preview_png(suitability, presence_df, extent, args.species, out_path)
+    else:
+        out_path = args.output_dir / f"{slug}_suitability.tif"
+        save_suitability_raster(suitability, transform, TARGET_CRS, out_path)
 
 
 if __name__ == "__main__":
