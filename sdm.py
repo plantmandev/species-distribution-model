@@ -33,7 +33,6 @@ from rasterio.crs import CRS
 from rasterio.enums import Resampling
 from rasterio.transform import from_origin
 from rasterio.warp import reproject
-from scipy.stats import gaussian_kde
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import roc_auc_score
 
@@ -228,9 +227,50 @@ def sample_raster(
     pts_lat: np.ndarray,
 ) -> np.ndarray:
     """Extract predictor values at lon/lat points. Returns (n_pts, n_features)."""
-    lat_idx = np.abs(tgt_lats[:, None] - pts_lat[None, :]).argmin(axis=0)
-    lon_idx = np.abs(tgt_lons[:, None] - pts_lon[None, :]).argmin(axis=0)
+    # Direct index calculation — O(N) vs the previous O(H*N + W*N) argmin approach
+    lon_step = tgt_lons[1] - tgt_lons[0]
+    lat_step = tgt_lats[1] - tgt_lats[0]   # negative (grid is north→south)
+    lon_idx = np.clip(np.round((pts_lon - tgt_lons[0]) / lon_step).astype(int), 0, len(tgt_lons) - 1)
+    lat_idx = np.clip(np.round((pts_lat - tgt_lats[0]) / lat_step).astype(int), 0, len(tgt_lats) - 1)
     return predictor_stack[:, lat_idx, lon_idx].T
+
+# ── Predictor selection ────────────────────────────────────────────────────────
+
+def filter_correlated_predictors(
+    predictor_stack: np.ndarray,
+    feature_names: list[str],
+    valid_mask: np.ndarray,
+    threshold: float = 0.85,
+    rng: np.random.Generator | None = None,
+) -> tuple[np.ndarray, list[str]]:
+    """Remove one predictor from each pair with Pearson |r| > threshold."""
+    valid_idx = np.argwhere(valid_mask)
+    sel = (rng or np.random.default_rng(42)).choice(
+        len(valid_idx), size=min(10_000, len(valid_idx)), replace=False
+    )
+    rows, cols = valid_idx[sel, 0], valid_idx[sel, 1]
+    corr = np.corrcoef(predictor_stack[:, rows, cols])
+
+    n = len(feature_names)
+    drop: set[int] = set()
+    for i in range(n):
+        if i in drop:
+            continue
+        for j in range(i + 1, n):
+            if j not in drop and abs(corr[i, j]) > threshold:
+                drop.add(j)
+                log.info(
+                    f"  Collinearity: dropping {feature_names[j]} "
+                    f"(|r|={abs(corr[i, j]):.2f} with {feature_names[i]})"
+                )
+
+    keep = [i for i in range(n) if i not in drop]
+    log.info(
+        f"Predictors after collinearity filter: "
+        f"{[feature_names[i] for i in keep]} ({len(keep)}/{n} kept)"
+    )
+    return predictor_stack[keep], [feature_names[i] for i in keep]
+
 
 # ── Model ──────────────────────────────────────────────────────────────────────
 
@@ -258,7 +298,244 @@ def train_model(
     log.info("Feature importances:\n" + importance.to_string())
     return model
 
+
+class _Ensemble:
+    """Averages predict_proba from multiple fitted classifiers."""
+    def __init__(self, models: list) -> None:
+        self.models = models
+
+    def predict_proba(self, X: np.ndarray) -> np.ndarray:
+        avg = np.mean([m.predict_proba(X)[:, 1] for m in self.models], axis=0)
+        return np.column_stack([1 - avg, avg])
+
+# ── Validation ─────────────────────────────────────────────────────────────────
+
+def assign_spatial_blocks(df: pd.DataFrame, block_size: float) -> pd.DataFrame:
+    """Label each row with a lat/lon block ID for spatial CV."""
+    df = df.copy()
+    df["block_id"] = (
+        (df["lon"] // block_size).astype(int).astype(str)
+        + "_"
+        + (df["lat"] // block_size).astype(int).astype(str)
+    )
+    return df
+
+
+def spatial_block_cv(
+    presence_df: pd.DataFrame,
+    absence_df: pd.DataFrame,
+    predictor_stack: np.ndarray,
+    tgt_lons: np.ndarray,
+    tgt_lats: np.ndarray,
+    feature_names: list[str],
+    block_size: float = 10.0,
+) -> dict:
+    """
+    Leave-one-block-out spatial cross-validation.
+    Returns mean AUC, TSS, sensitivity, and specificity across folds.
+    """
+    pres = assign_spatial_blocks(presence_df, block_size)
+    abss = assign_spatial_blocks(absence_df, block_size)
+    blocks = sorted(pres["block_id"].unique())
+    log.info(f"Spatial CV: {len(blocks)} blocks at {block_size}° resolution")
+
+    # Pre-sample feature matrices once — avoids repeating the lookup N_folds times
+    X_pres_all = sample_raster(predictor_stack, tgt_lons, tgt_lats,
+                               pres["lon"].values, pres["lat"].values)
+    X_abs_all  = sample_raster(predictor_stack, tgt_lons, tgt_lats,
+                               abss["lon"].values, abss["lat"].values)
+    pres_block = pres["block_id"].values
+    abs_block  = abss["block_id"].values
+
+    fold_aucs, fold_tss, fold_sens, fold_spec = [], [], [], []
+
+    for block in blocks:
+        pres_te_m = pres_block == block
+        abs_te_m  = abs_block  == block
+
+        if pres_te_m.sum() < 5 or (~pres_te_m).sum() < 10:
+            continue
+
+        X_pres_tr = X_pres_all[~pres_te_m]; X_pres_te = X_pres_all[pres_te_m]
+        X_abs_tr  = X_abs_all[~abs_te_m];   X_abs_te  = X_abs_all[abs_te_m]
+
+        X_tr = np.vstack([X_pres_tr, X_abs_tr])
+        y_tr = np.concatenate([np.ones(len(X_pres_tr)), np.zeros(len(X_abs_tr))])
+        X_te = np.vstack([X_pres_te, X_abs_te])
+        y_te = np.concatenate([np.ones(len(X_pres_te)), np.zeros(len(X_abs_te))])
+
+        valid_tr = np.all(np.isfinite(X_tr), axis=1)
+        valid_te = np.all(np.isfinite(X_te), axis=1)
+        X_tr, y_tr = X_tr[valid_tr], y_tr[valid_tr]
+        X_te, y_te = X_te[valid_te], y_te[valid_te]
+
+        if len(np.unique(y_te)) < 2:
+            continue
+
+        fold_model = RandomForestClassifier(
+            n_estimators=100,
+            max_features="sqrt",
+            min_samples_leaf=5,
+            class_weight="balanced",
+            n_jobs=-1,
+            random_state=42,
+        )
+        fold_model.fit(X_tr, y_tr)
+        y_prob = fold_model.predict_proba(X_te)[:, 1]
+
+        fold_aucs.append(roc_auc_score(y_te, y_prob))
+
+        # Vectorised max-TSS search across all thresholds at once
+        thresholds = np.linspace(0, 1, 200)
+        y_preds = y_prob[None, :] >= thresholds[:, None]   # (200, n_test)
+        pres_m  = y_te == 1
+        n_pres  = pres_m.sum()
+        n_abs   = (~pres_m).sum()
+        tp = y_preds[:, pres_m].sum(axis=1).astype(float)
+        fp = y_preds[:, ~pres_m].sum(axis=1).astype(float)
+        sens_v = np.where(n_pres > 0, tp / n_pres, 0.0)
+        spec_v = np.where(n_abs  > 0, (n_abs - fp) / n_abs, 0.0)
+        tss_v  = sens_v + spec_v - 1.0
+        best   = int(np.argmax(tss_v))
+        fold_tss.append(float(tss_v[best]))
+        fold_sens.append(float(sens_v[best]))
+        fold_spec.append(float(spec_v[best]))
+
+    if not fold_aucs:
+        log.warning("No valid CV folds produced — try a smaller --block-size")
+        return {}
+
+    return {
+        "n_folds":          len(fold_aucs),
+        "auc_mean":         float(np.mean(fold_aucs)),
+        "auc_std":          float(np.std(fold_aucs)),
+        "tss_mean":         float(np.mean(fold_tss)),
+        "tss_std":          float(np.std(fold_tss)),
+        "sensitivity_mean": float(np.mean(fold_sens)),
+        "specificity_mean": float(np.mean(fold_spec)),
+    }
+
+
+def boyce_index(
+    suitability: np.ndarray,
+    presence_df: pd.DataFrame,
+    tgt_lons: np.ndarray,
+    tgt_lats: np.ndarray,
+    n_bins: int = 10,
+) -> float:
+    """
+    Continuous Boyce index — Spearman correlation between bin midpoints and
+    the predicted-to-expected (P/E) ratio of presences vs. background area.
+    Ranges -1 to +1; values near +1 mean presences cluster in high-suitability cells.
+    """
+    lat_idx = np.abs(tgt_lats[:, None] - presence_df["lat"].values[None, :]).argmin(axis=0)
+    lon_idx = np.abs(tgt_lons[:, None] - presence_df["lon"].values[None, :]).argmin(axis=0)
+    pres_suit = suitability[lat_idx, lon_idx]
+    pres_suit = pres_suit[np.isfinite(pres_suit)]
+
+    bg_suit = suitability[np.isfinite(suitability)].ravel()
+
+    edges = np.linspace(0.0, 1.0, n_bins + 1)
+    mids, pe = [], []
+    for lo, hi in zip(edges[:-1], edges[1:]):
+        p = np.mean((pres_suit >= lo) & (pres_suit < hi))
+        e = np.mean((bg_suit   >= lo) & (bg_suit   < hi))
+        if e > 0:
+            mids.append((lo + hi) / 2)
+            pe.append(p / e)
+
+    if len(mids) < 3:
+        return float("nan")
+
+    # Spearman rank correlation
+    mids_arr = np.array(mids, dtype=float)
+    pe_arr   = np.array(pe,   dtype=float)
+    rank_m = np.argsort(np.argsort(mids_arr)).astype(float)
+    rank_p = np.argsort(np.argsort(pe_arr)).astype(float)
+    n = len(mids_arr)
+    return float(1.0 - 6.0 * np.sum((rank_m - rank_p) ** 2) / (n * (n ** 2 - 1)))
+
+
 # ── Output ─────────────────────────────────────────────────────────────────────
+
+def build_range_polygon(
+    presence_df: pd.DataFrame,
+    transform: rasterio.Affine,
+    shape: tuple[int, int],
+    tgt_lons: np.ndarray,
+    tgt_lats: np.ndarray,
+    valid_mask: np.ndarray | None = None,
+    sigma_deg: float = 0.5,
+    coverage: float = 0.90,
+) -> tuple:
+    """
+    Observed-range polygon derived from a smoothed presence-density raster.
+
+    The threshold is derived from the presence records themselves: it is set to
+    the density value below which (1 - coverage) of presences fall, so the
+    polygon is guaranteed to contain `coverage` fraction of all records.
+
+    Returns (polygon, actual_coverage) where actual_coverage may be slightly
+    above the target due to cells shared by multiple presences.
+    """
+    from scipy.ndimage import gaussian_filter
+    from rasterio.features import shapes as rio_shapes
+    from shapely.geometry import shape as sh_shape, MultiPoint
+    from shapely.ops import unary_union
+
+    height, width = shape
+    resolution = float(tgt_lons[1] - tgt_lons[0])
+
+    pts = presence_df[["lon", "lat"]].dropna()
+    lon_step = tgt_lons[1] - tgt_lons[0]
+    lat_step = tgt_lats[1] - tgt_lats[0]   # negative (north→south)
+
+    c_idx = np.clip(np.round((pts["lon"].values - tgt_lons[0]) / lon_step).astype(int), 0, width  - 1)
+    r_idx = np.clip(np.round((pts["lat"].values - tgt_lats[0]) / lat_step).astype(int), 0, height - 1)
+
+    density = np.zeros(shape, dtype=np.float32)
+    np.add.at(density, (r_idx, c_idx), 1)
+
+    sigma_cells = sigma_deg / abs(resolution)
+    smoothed = gaussian_filter(density, sigma=sigma_cells)
+
+    if valid_mask is not None:
+        smoothed[~valid_mask] = 0.0
+
+    # Threshold = the smoothed-density value at the (1-coverage) percentile of
+    # presence locations — guarantees `coverage` fraction of records are inside
+    pres_vals = smoothed[r_idx, c_idx]
+    nonzero = pres_vals[pres_vals > 0]
+    threshold = (
+        float(np.percentile(nonzero, (1 - coverage) * 100))
+        if len(nonzero)
+        else smoothed.max() * 0.02
+    )
+    actual_coverage = float((pres_vals >= threshold).mean())
+
+    binary = (smoothed >= threshold).astype(np.uint8)
+    polys = [sh_shape(geom) for geom, val in rio_shapes(binary, transform=transform) if val == 1]
+
+    if not polys:
+        mp = MultiPoint(list(zip(pts["lon"].values, pts["lat"].values)))
+        return mp.convex_hull.buffer(abs(resolution) * 5), actual_coverage
+
+    return unary_union(polys).simplify(abs(resolution)), actual_coverage
+
+
+def save_range_vector(range_poly, crs: CRS, path: Path) -> None:
+    """Save the observed-range polygon as a GeoPackage (.gpkg)."""
+    import geopandas as gpd
+
+    gdf = gpd.GeoDataFrame(
+        {"layer": ["observed_range"]},
+        geometry=[range_poly],
+        crs=crs.to_epsg() or 4326,
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    gdf.to_file(path, driver="GPKG")
+    log.info(f"Range vector saved → {path}")
+
 
 def save_suitability_raster(
     suitability: np.ndarray,
@@ -292,6 +569,7 @@ def save_preview_png(
     extent: tuple,
     species_name: str,
     path: Path,
+    range_poly=None,
 ) -> None:
     import matplotlib
     matplotlib.use("Agg")
@@ -317,42 +595,42 @@ def save_preview_png(
         interpolation="bilinear",
     )
 
-    # ── Predicted range boundary (suitability = 0.5 contour) ─────────────────
-    suit_clean = np.where(np.isfinite(suitability), suitability, 0.0)
-    ax.contour(
-        lon_grid, lat_grid, suit_clean,
-        levels=[0.5],
-        colors=["#1a1a2e"],
-        linewidths=1.2,
-        linestyles="solid",
+    # ── Actual observed range (buffered union of occurrence points) ───────────
+    from matplotlib.patches import PathPatch
+    from matplotlib.path import Path as MplPath
+
+    if range_poly is None:
+        from shapely.geometry import MultiPoint
+        pts = presence_df[["lon", "lat"]].dropna()
+        range_poly = MultiPoint(list(zip(pts["lon"].values, pts["lat"].values))).convex_hull.buffer(1.5)
+
+
+    def plot_polygon(poly, ax, **kwargs):
+        from matplotlib.patches import PathPatch
+        from matplotlib.path import Path as MplPath
+        import numpy as np
+        def ring_to_path(ring):
+            coords = np.array(ring.coords)
+            codes = [MplPath.MOVETO] + [MplPath.LINETO] * (len(coords) - 2) + [MplPath.CLOSEPOLY]
+            return coords, codes
+        all_verts, all_codes = [], []
+        geoms = [poly] if poly.geom_type == "Polygon" else list(poly.geoms)
+        for geom in geoms:
+            v, c = ring_to_path(geom.exterior)
+            all_verts.append(v); all_codes.extend(c)
+            for interior in geom.interiors:
+                v, c = ring_to_path(interior)
+                all_verts.append(v); all_codes.extend(c)
+        path = MplPath(np.vstack(all_verts), all_codes)
+        ax.add_patch(PathPatch(path, **kwargs))
+
+    plot_polygon(
+        range_poly, ax,
+        facecolor="none", edgecolor="#00b4d8",
+        linewidth=1.4, linestyle="solid", zorder=3,
     )
-    # Invisible proxy for legend
-    ax.plot([], [], color="#1a1a2e", linewidth=1.2, linestyle="solid",
-            label="Predicted range boundary (p = 0.5)")
-
-    # ── Actual observed range (KDE contour) ───────────────────────────────────
-    pts = presence_df[["lon", "lat"]].dropna()
-    sample = pts if len(pts) <= 10_000 else pts.sample(10_000, random_state=42)
-    kde = gaussian_kde(sample[["lon", "lat"]].values.T, bw_method=0.08)
-
-    # Find density threshold enclosing 90% of occurrences
-    occ_densities = kde(pts[["lon", "lat"]].values.T)
-    threshold = np.percentile(occ_densities, 10)
-
-    # Evaluate KDE on a coarse grid (1° steps) then let matplotlib interpolate the contour
-    coarse_lons = np.arange(w, e, 1.0)
-    coarse_lats = np.arange(n, s, -1.0)
-    clon_grid, clat_grid = np.meshgrid(coarse_lons, coarse_lats)
-    kde_vals = kde(np.vstack([clon_grid.ravel(), clat_grid.ravel()])).reshape(clat_grid.shape)
-    ax.contour(
-        clon_grid, clat_grid, kde_vals,
-        levels=[threshold],
-        colors=["#00b4d8"],
-        linewidths=1.4,
-        linestyles="dashed",
-    )
-    ax.plot([], [], color="#00b4d8", linewidth=1.4, linestyle="dashed",
-            label="Observed range (90% occurrence density)")
+    ax.plot([], [], color="#00b4d8", linewidth=1.4, linestyle="solid",
+            label="Observed range")
 
     # ── Labels & legend ───────────────────────────────────────────────────────
     cbar = fig.colorbar(im, ax=ax, fraction=0.03, pad=0.02)
@@ -403,6 +681,18 @@ def parse_args() -> argparse.Namespace:
         "--preview", action="store_true",
         help="Save a PNG preview with occurrence points overlaid instead of writing the TIFF",
     )
+    p.add_argument(
+        "--range-coverage", type=float, default=1.0,
+        help="Fraction of presence records the range polygon must contain (default: 1.0)",
+    )
+    p.add_argument(
+        "--validate", action="store_true",
+        help="Run spatial block CV + Boyce index after training",
+    )
+    p.add_argument(
+        "--block-size", type=float, default=10.0,
+        help="Spatial block size in degrees for CV (default: 10.0)",
+    )
     return p.parse_args()
 
 # ── Main ───────────────────────────────────────────────────────────────────────
@@ -439,22 +729,36 @@ def main() -> None:
     log.info("Loading BioClim features...")
     climate_grids = load_bioclim_features(transform, shape, TARGET_CRS)
 
-    # 4 ── Predictor stack ─────────────────────────────────────────────────────
+    # 4 ── Predictor stack + collinearity filter ──────────────────────────────
     feature_names = list(climate_grids.keys())
     predictor_stack = np.stack(list(climate_grids.values()), axis=0)  # (n_features, H, W)
 
     valid_mask = np.all(np.isfinite(predictor_stack), axis=0)
     log.info(f"Valid pixels: {valid_mask.sum():,} / {valid_mask.size:,}")
 
-    # 5 ── Clip presences to valid pixels ─────────────────────────────────────
-    pres_lat_idx = np.abs(tgt_lats[:, None] - presence_df["lat"].values[None, :]).argmin(axis=0)
-    pres_lon_idx = np.abs(tgt_lons[:, None] - presence_df["lon"].values[None, :]).argmin(axis=0)
-    in_valid = valid_mask[pres_lat_idx, pres_lon_idx]
+    log.info("Checking predictor collinearity...")
+    predictor_stack, feature_names = filter_correlated_predictors(
+        predictor_stack, feature_names, valid_mask, rng=rng
+    )
+
+    # 5 ── Clip presences to valid pixels + spatial thinning ──────────────────
+    lon_step = tgt_lons[1] - tgt_lons[0]
+    lat_step = tgt_lats[1] - tgt_lats[0]
+    pres_col_idx = np.clip(np.round((presence_df["lon"].values - tgt_lons[0]) / lon_step).astype(int), 0, width - 1)
+    pres_row_idx = np.clip(np.round((presence_df["lat"].values - tgt_lats[0]) / lat_step).astype(int), 0, height - 1)
+    in_valid = valid_mask[pres_row_idx, pres_col_idx]
     presence_df = presence_df[in_valid].reset_index(drop=True)
     log.info(f"{len(presence_df):,} presence points within valid BioClim coverage")
 
     if len(presence_df) < 10:
         sys.exit("Too few presence points within BioClim coverage (<10) — aborting.")
+
+    # Thin to one record per grid cell — reduces sampling bias from over-surveyed sites
+    n_before = len(presence_df)
+    cell_ids = pres_row_idx[in_valid] * width + pres_col_idx[in_valid]
+    _, first = np.unique(cell_ids, return_index=True)
+    presence_df = presence_df.iloc[first].reset_index(drop=True)
+    log.info(f"Spatial thinning: {n_before:,} → {len(presence_df):,} records (1 per {args.resolution}° cell)")
 
     # 6 ── Pseudo-absences sampled from valid pixels ───────────────────────────
     if args.target_group:
@@ -488,9 +792,41 @@ def main() -> None:
         f"Training set: {int(y.sum()):,} presences, {int((y == 0).sum()):,} absences"
     )
 
-    # 8 ── Train model ─────────────────────────────────────────────────────────
+    # 8 ── Train ensemble (Random Forest + Extra Trees) ───────────────────────
+    from sklearn.ensemble import ExtraTreesClassifier
     log.info("Training Random Forest...")
-    model = train_model(X, y, feature_names)
+    rf = train_model(X, y, feature_names)
+    log.info("Training Extra Trees...")
+    et = ExtraTreesClassifier(
+        n_estimators=200,
+        max_features="sqrt",
+        min_samples_leaf=5,
+        class_weight="balanced",
+        n_jobs=-1,
+        random_state=0,
+    )
+    et.fit(X, y)
+    log.info(f"Extra Trees training AUC: {roc_auc_score(y, et.predict_proba(X)[:, 1]):.3f}")
+    model = _Ensemble([rf, et])
+
+    # 8b ── Spatial block cross-validation ────────────────────────────────────
+    if args.validate:
+        log.info("Running spatial block cross-validation (this may take a few minutes)...")
+        cv = spatial_block_cv(
+            presence_df, absence_df, predictor_stack,
+            tgt_lons, tgt_lats, feature_names,
+            block_size=args.block_size,
+        )
+        if cv:
+            log.info(
+                f"Spatial CV results ({cv['n_folds']} folds, {args.block_size}° blocks):\n"
+                f"  AUC         = {cv['auc_mean']:.3f} ± {cv['auc_std']:.3f}\n"
+                f"  TSS         = {cv['tss_mean']:.3f} ± {cv['tss_std']:.3f}\n"
+                f"  Sensitivity = {cv['sensitivity_mean']:.3f}  "
+                f"(omission rate = {1 - cv['sensitivity_mean']:.3f})\n"
+                f"  Specificity = {cv['specificity_mean']:.3f}  "
+                f"(commission rate = {1 - cv['specificity_mean']:.3f})"
+            )
 
     # 9 ── Predict suitability ─────────────────────────────────────────────────
     log.info("Predicting suitability across full grid...")
@@ -504,11 +840,29 @@ def main() -> None:
         f"Suitability range: {np.nanmin(suitability):.3f} – {np.nanmax(suitability):.3f}"
     )
 
+    # 9b ── Boyce index ────────────────────────────────────────────────────────
+    if args.validate:
+        bi = boyce_index(suitability, presence_df, tgt_lons, tgt_lats)
+        log.info(
+            f"Boyce index: {bi:.3f}  "
+            f"({'excellent' if bi > 0.7 else 'acceptable' if bi > 0.5 else 'poor'})"
+        )
+
     # 10 ── Save output ────────────────────────────────────────────────────────
     slug = args.species.replace("-", " ").replace(" ", "_").lower()
+
+    log.info("Building observed-range polygon...")
+    range_poly, range_coverage = build_range_polygon(
+        presence_df, transform, shape, tgt_lons, tgt_lats,
+        valid_mask=valid_mask, coverage=args.range_coverage,
+    )
+    log.info(f"Range polygon captures {range_coverage:.1%} of presence records")
+    range_path = args.output_dir / f"{slug}_range.gpkg"
+    save_range_vector(range_poly, TARGET_CRS, range_path)
+
     if args.preview:
         out_path = args.output_dir / f"{slug}_preview.png"
-        save_preview_png(suitability, presence_df, extent, args.species, out_path)
+        save_preview_png(suitability, presence_df, extent, args.species, out_path, range_poly)
     else:
         out_path = args.output_dir / f"{slug}_suitability.tif"
         save_suitability_raster(suitability, transform, TARGET_CRS, out_path)
