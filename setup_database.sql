@@ -145,12 +145,34 @@ COMMENT ON FUNCTION refresh_species_extents IS
     'Call as: SELECT refresh_species_extents($species_id);';
 
 -- =============================================================================
+-- SDM OUTPUTS
+-- Tracks which species have completed SDM outputs (suitability raster +
+-- observed-range vector) uploaded to the plantmandev public directory.
+-- Populated by update.py --upload-sdm; queried by the web front-end.
+-- =============================================================================
+CREATE TABLE sdm_outputs (
+    id               SERIAL PRIMARY KEY,
+    species_id       INTEGER NOT NULL REFERENCES species(id) ON DELETE CASCADE,
+    suitability_data BYTEA,         -- raw GeoTIFF bytes
+    range_data       BYTEA,         -- GeoJSON bytes (converted from .gpkg at upload time)
+    status           TEXT NOT NULL DEFAULT 'pending'
+                     CHECK (status IN ('pending', 'completed')),
+    created_at       TIMESTAMP DEFAULT NOW(),
+    completed_at     TIMESTAMP,
+    UNIQUE (species_id)
+);
+
+CREATE INDEX idx_sdm_species ON sdm_outputs (species_id);
+CREATE INDEX idx_sdm_status  ON sdm_outputs (status);
+
+-- =============================================================================
 -- GRANTS
 -- =============================================================================
 GRANT SELECT                     ON ALL TABLES    IN SCHEMA public TO lepidoptera_demo;
 GRANT INSERT, UPDATE, DELETE     ON ALL TABLES    IN SCHEMA public TO lepidoptera_app;
 GRANT USAGE, SELECT              ON ALL SEQUENCES IN SCHEMA public TO lepidoptera_app;
 GRANT EXECUTE ON FUNCTION refresh_species_extents(INTEGER) TO lepidoptera_app;
+GRANT INSERT, UPDATE             ON sdm_outputs TO lepidoptera_app;
 
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
     GRANT SELECT ON TABLES TO lepidoptera_demo;
